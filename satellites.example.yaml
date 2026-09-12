@@ -7,6 +7,8 @@ tle_file: tle/amateur.txt   # EDIT: keep this refreshed from Celestrak/Space-Tra
 
 rig_port: 4532      # single shared rigctld port used by every satellite
 
+notify: false       # set true for desktop notifications at AOS/LOS (needs notify-send)
+
 # Antenna rotor (optional - omit both keys to run without rotor control).
 # You start rotctld yourself, pointed at your real rotor hardware, e.g.:
 #   rotctld -m 607 -r /dev/ttyUSB2

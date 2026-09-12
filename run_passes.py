@@ -25,12 +25,49 @@ import atexit
 import argparse
 import shutil
 import yaml
+import os
+import errno
 from datetime import datetime, timezone
 from skyfield.api import load, wgs84, EarthSatellite
 
 CONFIG_PATH = "satellites.yaml"
 SCHEDULE_PATH = "schedule.yaml"
 SPEED_OF_LIGHT = 299792458.0
+LOCK_PATH = "run_passes.lock"
+
+
+def notify(title, message):
+    """Best-effort desktop notification - silently does nothing if
+    notify-send isn't available (e.g. a headless/remote box with no
+    display), or if notifications aren't enabled in satellites.yaml."""
+    try:
+        subprocess.run(["notify-send", title, message], timeout=2,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+
+def acquire_lock():
+    """Refuses to start a second run_passes.py against the same folder -
+    two instances would fight over rigctld/rotctld and the SDR."""
+    if os.path.exists(LOCK_PATH):
+        with open(LOCK_PATH) as f:
+            old_pid = f.read().strip()
+        try:
+            os.kill(int(old_pid), 0)  # signal 0: just checks it exists
+            alive = True
+        except (OSError, ValueError) as e:
+            alive = isinstance(e, OSError) and e.errno == errno.EPERM
+        if alive:
+            sys.exit(f"run_passes.py already running (PID {old_pid}, lock file "
+                      f"{LOCK_PATH}). Kill it first, or delete {LOCK_PATH} if it's "
+                      f"stale (e.g. after a crash).")
+        else:
+            print(f"Stale lock file found (PID {old_pid} is not running) - removing it.")
+
+    with open(LOCK_PATH, "w") as f:
+        f.write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(LOCK_PATH) and os.remove(LOCK_PATH))
 
 
 def load_yaml(path):
@@ -162,7 +199,10 @@ def main():
                      help="print each Doppler/rotor update while a pass is active")
     args = ap.parse_args()
 
+    acquire_lock()
+
     cfg = load_yaml(CONFIG_PATH)
+    notify_enabled = bool(cfg.get("notify", False))
     schedule = load_yaml(SCHEDULE_PATH)
     gs = cfg["ground_station"]
     observer = wgs84.latlon(gs["lat"], gs["lon"], gs["alt_m"])
@@ -227,6 +267,8 @@ def main():
                         if is_tty:
                             clear_line()
                         print(f"[{sat_cfg['name']}] LOS ({'scheduled' if past_los else 'elevation safety net'})")
+                        if notify_enabled:
+                            notify("Satellite pass ended", f"{sat_cfg['name']} - LOS")
                         active_proc.terminate()
                         try:
                             active_proc.wait(timeout=10)
@@ -264,6 +306,8 @@ def main():
                             clear_line()
                         sat_cfg = sat_cfgs[p["norad"]]
                         print(f"[{sat_cfg['name']}] AOS - launching {sat_cfg['script']}")
+                        if notify_enabled:
+                            notify("Satellite pass starting", f"{sat_cfg['name']} - AOS")
                         active_proc = subprocess.Popen([sys.executable, "-u", sat_cfg["script"]])
                         active_pass = p
                         time.sleep(3)  # let the flowgraph come up before polling rigctld

@@ -17,6 +17,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 
 FLEET_PORTS = {
     4532: "rigctld (Doppler)",
@@ -170,7 +171,79 @@ def run_preflight(extra_args):
     subprocess.run([sys.executable, preflight_path] + extra_args)
 
 
+def quick_status():
+    """One compact block: TLE age, daemon status, next approved pass."""
+    import yaml
+    from datetime import datetime, timezone
+
+    try:
+        with open("satellites.yaml") as f:
+            cfg = yaml.safe_load(f)
+    except (FileNotFoundError, yaml.YAMLError) as e:
+        print(f"Can't read satellites.yaml: {e}")
+        return
+
+    # TLE age
+    tle_path = cfg.get("tle_file", "")
+    if os.path.exists(tle_path):
+        age_hours = (time.time() - os.path.getmtime(tle_path)) / 3600
+        tle_str = f"{age_hours:.1f}h old" + ("  ** REFRESH ME **" if age_hours > 48 else "")
+    else:
+        tle_str = "MISSING"
+    print(f"TLE:      {tle_str}")
+
+    # daemons
+    def port_status(port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            s.close()
+            return "down"
+        except OSError:
+            s.close()
+            return "up"
+
+    rig_status = port_status(cfg.get("rig_port", 4532))
+    print(f"rigctld:  {rig_status} (port {cfg.get('rig_port', 4532)})")
+    if "rot_port" in cfg:
+        rot_status = port_status(cfg["rot_port"])
+        print(f"rotctld:  {rot_status} (port {cfg['rot_port']})")
+    if cfg.get("satellites"):
+        relay_port = cfg["satellites"][0]["consumer_port"]
+        relay_status = port_status(relay_port)
+        print(f"relay.py: {relay_status}")
+
+    # next approved pass
+    if os.path.exists("schedule.yaml"):
+        with open("schedule.yaml") as f:
+            sched = yaml.safe_load(f) or {}
+        now = datetime.now(timezone.utc)
+        upcoming = []
+        for p in sched.get("passes", []):
+            if not p.get("approved"):
+                continue
+            aos = datetime.fromisoformat(p["aos"].replace("Z", "+00:00"))
+            if aos > now:
+                upcoming.append((aos, p))
+        if upcoming:
+            upcoming.sort(key=lambda x: x[0])
+            aos, p = upcoming[0]
+            delta = aos - now
+            hours, rem = divmod(int(delta.total_seconds()), 3600)
+            mins, _ = divmod(rem, 60)
+            print(f"Next:     {p['name']} in {hours}h{mins:02d}m (AOS {p['aos']})")
+        else:
+            print("Next:     no approved future passes in schedule.yaml")
+    else:
+        print("Next:     no schedule.yaml - run plan_passes.py")
+
+
 def main():
+    if "--status" in sys.argv:
+        quick_status()
+        return
+
     extra_args = sys.argv[1:]  # passed straight through to preflight.py
     real = where_are_we()
     find_other_copies(real)
