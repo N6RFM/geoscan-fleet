@@ -1,10 +1,39 @@
-# GEOSCAN fleet ground station: elevation-gated, Doppler-corrected, rotor-tracked pass automation
+# geoscan-fleet
 
-Automates receiving GEOSCAN-1, -2, -4, and -5: predicts passes in advance so
-you can approve/reject them, then for each approved pass launches the right
-GNU Radio flowgraph, retunes for Doppler via Hamlib `rigctld`, points the
-antenna via Hamlib `rotctld`, records an IQ file, and forwards decoded KISS
-frames to your downstream decoder through a persistent relay.
+Unattended GNU Radio ground station automation for the GEOSCAN cubesat
+constellation (GEOSCAN-1, -2, -4, -5). Built on top of
+[gr-satellites](https://github.com/daniestevez/gr-satellites), Hamlib, and
+Skyfield.
+
+Point it at your ground station's coordinates and SDR, and it predicts
+upcoming passes for review/approval, then for each approved pass:
+retunes for live Doppler shift via a Hamlib `rigctld`, points an antenna
+rotor via `rotctld`, records an IQ file, and forwards decoded KISS frames
+to your downstream decoder(s) through a relay that stays connected across
+every pass - no manual tuning, no re-clicking "Engage" in Gpredict, no
+reconnecting your decoder every AOS.
+
+**What it assumes you already have:** GNU Radio 3.10+ with an SDR
+supported by `gr-osmosdr` (developed against an Airspy), `gr-satellites`
+installed, Hamlib (`rigctld`/`rotctld`), Python 3 with `skyfield` and
+`pyyaml`, and (optionally) a Hamlib-compatible antenna rotor and its
+serial interface.
+
+**What it doesn't do:** demodulation/decoding itself (that's
+`gr-satellites`), or drive a rotor/radio that Hamlib doesn't already
+support.
+
+## Quick start
+
+```
+git clone git@github.com:n6rfm/geoscan-fleet.git
+cd geoscan-fleet
+cp satellites.example.yaml satellites.yaml
+python3 doctor.py
+```
+
+See "One-time setup" below for the full walkthrough, and "Troubleshooting"
+near the end if something doesn't come back clean.
 
 ## Folder layout
 
@@ -492,6 +521,11 @@ config-only checks can't see.
 - Hand-authored `.grc` blocks (`epy_block`s, `network_socket_pdu`) were
   written outside GNU Radio Companion - open each block's properties
   dialog once after import to let GRC regenerate anything it flags.
+
+## Authors
+
+- N6RFM
+- Claude (Anthropic)
 
 ## License
 
