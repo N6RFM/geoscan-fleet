@@ -1,0 +1,48 @@
+ground_station:
+  lat: 0.0          # EDIT: your latitude (deg, +N)
+  lon: 0.0          # EDIT: your longitude (deg, +E)
+  alt_m: 20        # EDIT: your altitude (m)
+
+tle_file: tle/amateur.txt   # EDIT: keep this refreshed from Celestrak/Space-Track
+
+rig_port: 4532      # single shared rigctld port used by every satellite
+
+# Antenna rotor (optional - omit both keys to run without rotor control).
+# You start rotctld yourself, pointed at your real rotor hardware, e.g.:
+#   rotctld -m 607 -r /dev/ttyUSB2
+# (no -t needed - rotctld defaults to port 4533, matching rot_port below)
+rot_host: 127.0.0.1
+rot_port: 4533
+
+satellites:
+  - name: GEOSCAN-1
+    norad: 64880
+    freq_hz: 435973000
+    script: flowgraphs/geoscan1.py
+    min_elev_deg: 15
+    producer_port: 9101   # flowgraph -> relay (internal, not for the decoder)
+    consumer_port: 8101   # relay -> your downstream decoder connects here
+
+  - name: GEOSCAN-2
+    norad: 64890
+    freq_hz: 436163000
+    script: flowgraphs/geoscan2.py
+    min_elev_deg: 15
+    producer_port: 9102
+    consumer_port: 8102
+
+  - name: GEOSCAN-4
+    norad: 64892
+    freq_hz: 435338000
+    script: flowgraphs/geoscan4.py
+    min_elev_deg: 15
+    producer_port: 9103
+    consumer_port: 8103
+
+  - name: GEOSCAN-5
+    norad: 64891
+    freq_hz: 436663000
+    script: flowgraphs/geoscan5.py
+    min_elev_deg: 15
+    producer_port: 9104
+    consumer_port: 8104
