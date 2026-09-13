@@ -241,11 +241,15 @@ nohup python3 relay.py > relay.log 2>&1 &
 # 5. start your antenna rotor daemon, pointed at your real hardware
 rotctld -m 607 -r /dev/ttyUSB2 &
 
-# 6. execute: waits for AOS, launches flowgraphs, drives Doppler + rotor
+# 6. connect ALL FOUR decoder tabs/instances (8101/8102/8103/8104) and
+#    leave them open - see "The relay" below for why this matters and
+#    how to check it's actually done correctly
+
+# 7. execute: waits for AOS, launches flowgraphs, drives Doppler + rotor
 python3 run_passes.py --verbose
 ```
 
-Steps 3-5 only need to be started once per session (they're long-running);
+Steps 3-6 only need to be started once per session (they're long-running);
 step 1-2 is the thing to repeat daily as TLEs update. Redirecting relay.py's
 output to a log file (rather than `python3 relay.py &` directly) keeps your
 terminal prompt clean instead of its startup messages interleaving with it -
@@ -404,6 +408,43 @@ per satellite (see `producer_port`/`consumer_port` in `satellites.yaml`):
   never drops, even across LOS - only the producer side comes and goes as
   passes start and stop.
 
+**Your downstream decoder needs one persistent connection PER SATELLITE,
+all open at the same time - not one connection you re-point between
+passes.** The relay serves all four satellites' ports simultaneously and
+continuously (it opens all eight listeners - four producer, four consumer
+- in the same event loop at startup, with no sequencing or switching
+between them at all). A single decoder connection can only ever be on one
+port, so it will only ever see one satellite's frames, no matter which
+satellite is actually overhead at the time.
+
+Concretely, in a tabbed decoder app like `SatsDecoder-linux`: open **four
+tabs**, one per satellite, each pointed at its own fixed `consumer_port`
+(8101/8102/8103/8104), and leave all four connected indefinitely:
+
+```
+Tab "geoscan-1"  ->  127.0.0.1 : 8101   (connect once, leave open forever)
+Tab "geoscan-2"  ->  127.0.0.1 : 8102   (connect once, leave open forever)
+Tab "geoscan-4"  ->  127.0.0.1 : 8103   (connect once, leave open forever)
+Tab "geoscan-5"  ->  127.0.0.1 : 8104   (connect once, leave open forever)
+```
+
+If your decoder app can't hold multiple independent connections in one
+instance, run it as four separate OS processes instead, each with a
+different Port set in its own window:
+```
+/path/to/decoder-binary &
+/path/to/decoder-binary &
+/path/to/decoder-binary &
+/path/to/decoder-binary &
+```
+
+Once all four are connected, nothing needs to be touched again between
+passes - whichever satellite is actually overhead automatically lights up
+its own tab/instance; the other three just sit idle until it's their turn.
+Verify all four are actually connected by checking `relay.log` for four
+separate `consumer connected` lines (one per satellite) that persist
+rather than connect-then-disconnect.
+
 Start `relay.py` and `run_passes.py` in either order - the flowgraph's
 socket client retries until the relay is listening, and the relay's
 consumer side accepts connections immediately even with no satellite up
@@ -483,6 +524,18 @@ decoder to a consumer port**
 or just run `python3 doctor.py` - it lists exactly what's holding each
 fleet port, and if a port shows `free` when it should show `relay.py`,
 that's your answer. Start it: `nohup python3 relay.py > relay.log 2>&1 &`
+
+**Real passes happen with signal/frames visible in the console, but
+nothing shows up in your downstream decoder**
+Almost certainly: only one satellite's consumer port has a decoder
+connected to it, and a different satellite's pass just happened. The
+relay serves all four consumer ports (8101-8104) simultaneously and
+continuously - it never switches which port is "active." Your decoder
+needs **four separate persistent connections, one per satellite, all
+open at once** - not one connection you re-point before each pass. See
+"The relay" above for the exact setup. Verify with `tail -f relay.log`:
+you should see four separate `consumer connected` lines that persist,
+not one connection that comes and goes.
 
 **Frames arrive but your decoder can't parse them / shows garbage**
 First check you're not just looking at *synthetic* test frames
