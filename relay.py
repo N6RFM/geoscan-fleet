@@ -14,22 +14,66 @@ opens two listening TCP ports:
     the producer side comes and goes.
 
 Run this once, alongside run_passes.py, before any pass starts.
+
+Keep-alive strategy (added after one of four parallel consumer
+connections kept silently dropping, requiring manual reconnection):
+
+  1. TCP-level keepalive (SO_KEEPALIVE + tuned intervals on Linux) on
+     every accepted socket - catches a genuinely dead connection (or a
+     NAT/firewall silently killing an idle one) much faster than the
+     OS default, which can take hours. This sends no application-level
+     bytes at all, so it cannot confuse any KISS parser.
+
+  NOTE: an earlier version of this file also sent a periodic empty KISS
+  frame (FEND FEND) as an application-level heartbeat. That was removed
+  after tracing SatsDecoder's own kiss_read_stream()/​_receive() code:
+  an empty/malformed KISS frame is indistinguishable from a genuine
+  disconnect in that client (both produce a falsy `frame`, triggering
+  its "Connection lost" path) - so the heartbeat was actively causing
+  the disconnects it was meant to prevent. TCP keepalive alone is safe
+  because it never touches the byte stream the KISS parser sees.
 """
 
 import asyncio
+import socket
+import sys
+import time
 import yaml
 
 CONFIG_PATH = "satellites.yaml"
 
 
+def tune_keepalive(writer):
+    """Enable TCP keepalive with aggressive intervals so a dead/idle
+    connection is detected in ~35s instead of the OS default (often
+    hours) - the leading suspect for a connection silently going stale
+    with no error on either end until the next real write."""
+    sock = writer.get_extra_info("socket")
+    if sock is None:
+        return
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if sys.platform.startswith("linux"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)   # start probing after 10s idle
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)  # probe every 5s
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)    # 5 failed probes = dead
+    except OSError:
+        pass  # best-effort; some platforms/socket types don't support all options
+
+
 class SatRelay:
     def __init__(self, name):
         self.name = name
-        self.consumers = set()  # set of asyncio.StreamWriter
+        self.consumers = set()  # set of writers
+
+    def log(self, msg):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{ts}] [{self.name}] {msg}", flush=True)
 
     async def handle_producer(self, reader, writer):
+        tune_keepalive(writer)
         peer = writer.get_extra_info("peername")
-        print(f"[{self.name}] producer connected: {peer}")
+        self.log(f"producer connected: {peer}")
         try:
             while True:
                 data = await reader.read(4096)
@@ -40,22 +84,25 @@ class SatRelay:
                     try:
                         w.write(data)
                         await w.drain()
-                    except (ConnectionResetError, BrokenPipeError):
+                    except (ConnectionResetError, BrokenPipeError, OSError):
                         dead.add(w)
                 self.consumers -= dead
         finally:
-            print(f"[{self.name}] producer disconnected: {peer}")
+            self.log(f"producer disconnected: {peer}")
             writer.close()
 
     async def handle_consumer(self, reader, writer):
+        tune_keepalive(writer)
         peer = writer.get_extra_info("peername")
-        print(f"[{self.name}] consumer connected: {peer}")
+        self.log(f"consumer connected: {peer}")
         self.consumers.add(writer)
         try:
             while not reader.at_eof():
                 await reader.read(4096)  # discard anything the consumer sends
+        except (ConnectionResetError, OSError):
+            pass
         finally:
-            print(f"[{self.name}] consumer disconnected: {peer}")
+            self.log(f"consumer disconnected: {peer}")
             self.consumers.discard(writer)
             writer.close()
 
@@ -73,7 +120,7 @@ async def main():
             relay.handle_consumer, "127.0.0.1", sat_cfg["consumer_port"])
         servers += [prod_srv, cons_srv]
         print(f"[{sat_cfg['name']}] producer :{sat_cfg['producer_port']}  "
-              f"consumer :{sat_cfg['consumer_port']}")
+              f"consumer :{sat_cfg['consumer_port']}  (TCP keepalive on)", flush=True)
 
     async with servers[0]:
         await asyncio.gather(*(s.serve_forever() for s in servers))
