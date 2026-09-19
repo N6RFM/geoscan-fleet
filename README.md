@@ -320,7 +320,10 @@ e.g. on a headless box).
 
 **`relay.py`** - persistent process, independent of any pass, that lets
 your downstream KISS decoder hold one stable connection across every
-AOS/LOS cycle instead of reconnecting every pass. See "The relay" below.
+AOS/LOS cycle instead of reconnecting every pass. Enables TCP keepalive
+(`SO_KEEPALIVE`) on every consumer connection so a genuinely dead link
+gets detected and cleaned up rather than left as a zombie. See "The
+relay" below.
 
 **`doctor.py`** - one command to check the environment (right folder,
 stray processes, occupied ports) plus everything `preflight.py` checks.
@@ -549,6 +552,26 @@ will silently show you GEOSCAN-1's traffic instead, with no error at all.
 This exact mixup happened once already in this setup - the tab was
 labeled correctly but the port field wasn't updated to match.
 
+**`SatsDecoder` shows "Connection lost" mid-pass, decoder tab drops with
+signal still visibly active**
+This was a real bug in `SatsDecoder` itself, not this toolkit -
+`kiss_read_stream()` returned the same falsy value (`b''`) for both "no
+data yet" and "connection actually closed," so a perfectly ordinary empty
+KISS frame could get misread as a dropped connection partway through a
+pass. Fixed upstream in commit `d94ff8e` ("KISS reader refact"), first
+available in the `nightly` tag - update with:
+```
+cd ~/SatsDecoder
+git fetch --tags
+git checkout nightly
+```
+(if you have a local `nightly` tag already cached from before this fix
+landed, `git fetch --tags` won't move it - `git tag -d nightly` first,
+then re-fetch, or you'll silently stay on the old code.)
+`relay.py`'s TCP keepalive is a separate, complementary safeguard against
+a genuinely stalled connection - it does not fix this specific bug, so
+update `SatsDecoder` rather than relying on keepalive alone.
+
 **Terminal looks "stuck" after backgrounding `relay.py`**
 It isn't - `python3 relay.py &` sometimes prints its startup lines a
 moment *after* bash already returned your prompt, which looks like a
@@ -613,6 +636,9 @@ config-only checks can't see.
 - Hand-authored `.grc` blocks (`epy_block`s, `network_socket_pdu`) were
   written outside GNU Radio Companion - open each block's properties
   dialog once after import to let GRC regenerate anything it flags.
+- **`SatsDecoder` version**: use the `nightly` tag or later (commit
+  `d94ff8e`+). Anything at or before release `0.3.6` has the mid-pass
+  false-disconnect bug described in Troubleshooting.
 
 ## Authors
 
