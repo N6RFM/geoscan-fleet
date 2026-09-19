@@ -113,7 +113,7 @@ blocks:
     affinity: ''
     alias: ''
     autostartFreqChange: 'False'
-    basedir: /home/YOUR_USERNAME/Desktop
+    basedir: /home/bob/Desktop
     basefile: geoscan4
     bits_per_sample: '8'
     comment: ''
@@ -736,7 +736,7 @@ blocks:
     alias: ''
     append: 'True'
     comment: ''
-    file: /home/YOUR_USERNAME/Desktop/GEOSCAN-4.kss
+    file: /home/bob/Desktop/GEOSCAN-4.kss
     options: '""'
   states:
     bus_sink: false
@@ -769,7 +769,7 @@ blocks:
     alias: ''
     comment: ''
     definition: file
-    file: /home/YOUR_USERNAME/Launches/current/GEOSCAN-4.yml
+    file: /home/bob/Launches/VL-25-07-2025/GEOSCAN-4.yml
     iq: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
