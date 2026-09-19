@@ -13,6 +13,14 @@ tle/*.txt
 # these can embed your local decoder file paths and are host-specific
 flowgraphs/*.py
 
+# grcc also drops companion files for embedded/epy_block helpers at the
+# repo root regardless of -o - same reasoning as flowgraphs/*.py above
+*_rig_freq_poller_*.py
+
+# Runtime lock for run_passes.py - only exists while it's actually running
+# (or after a crash that didn't clean up); never something to commit
+run_passes.lock
+
 # Captured IQ recordings and decoded KISS frames - large, personal, and
 # not something you want in git history
 *.kss
