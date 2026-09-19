@@ -13,11 +13,15 @@ Usage:
 
 import argparse
 import yaml
-from datetime import timezone
+from datetime import datetime, timezone
 from skyfield.api import load, wgs84, EarthSatellite
 
 CONFIG_PATH = "satellites.yaml"
 SCHEDULE_PATH = "schedule.yaml"
+
+
+def parse_iso(s):
+    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
 
 def load_config():
@@ -59,6 +63,63 @@ def find_passes(sat, observer, t0, t1, min_elev_deg):
         elif ev == 2 and aos is not None:  # set
             yield aos, t, max_el if max_el is not None else 0.0
             aos = None
+
+
+def find_overlaps(passes):
+    """Yield (a, b) for every pair of currently-approved passes, sorted by
+    aos, whose [aos, los) windows overlap - the case where the single SDR
+    can only actually record whichever one starts first."""
+    approved = sorted((p for p in passes if p["approved"]), key=lambda p: p["aos"])
+    for i in range(len(approved) - 1):
+        a, b = approved[i], approved[i + 1]
+        if b["aos"] < a["los"]:
+            yield a, b
+
+
+def resolve_overlaps(passes, interactive):
+    """Detect overlapping approved passes and either let the user actively
+    choose which one to keep (interactive), or print a clear warning so it's
+    not discovered silently later (non-interactive) - see the overlap
+    caveat this replaces."""
+    conflicts = list(find_overlaps(passes))
+    if not conflicts:
+        return
+
+    print(f"\n{len(conflicts)} overlap(s) among approved passes - only one "
+          f"satellite can record at a time (single SDR, no pre-emption):\n")
+    for a, b in conflicts:
+        if not a["approved"] or not b["approved"]:
+            continue  # already resolved by an earlier conflict in this same run
+        overlap_s = (parse_iso(a["los"]) - parse_iso(b["aos"])).total_seconds()
+        print(f"  {a['name']:<10} {a['aos']} -> {a['los']}  (max el {a['max_elevation_deg']})")
+        print(f"  {b['name']:<10} {b['aos']} -> {b['los']}  (max el {b['max_elevation_deg']})")
+        print(f"  -> {overlap_s:.0f}s overlap. Without a choice, {a['name']} "
+              f"wins (starts first) and {b['name']} will be skipped or "
+              f"badly truncated.")
+
+        if not interactive:
+            print(f"  Re-run with --interactive to choose, or hand-edit "
+                  f"{SCHEDULE_PATH} to set one side's approved: false.\n")
+            continue
+
+        while True:
+            choice = input(f"  Keep which? [1] {a['name']}  [2] {b['name']}  "
+                            f"[3] both anyway  [4] neither: ").strip()
+            if choice == "1":
+                b["approved"] = False
+                break
+            elif choice == "2":
+                a["approved"] = False
+                break
+            elif choice == "3":
+                break
+            elif choice == "4":
+                a["approved"] = False
+                b["approved"] = False
+                break
+            else:
+                print("  Please enter 1, 2, 3, or 4.")
+        print()
 
 
 def main():
@@ -118,6 +179,8 @@ def main():
             ans = input(f"Record {p['name']} at {p['aos']} "
                          f"(max el {p['max_elevation_deg']})? [Y/n] ").strip().lower()
             p["approved"] = not ans.startswith("n")
+
+    resolve_overlaps(all_passes, args.interactive)
 
     with open(SCHEDULE_PATH, "w") as f:
         yaml.dump({"passes": all_passes}, f, sort_keys=False, default_flow_style=False)
