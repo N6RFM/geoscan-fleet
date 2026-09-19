@@ -255,6 +255,98 @@ output to a log file (rather than `python3 relay.py &` directly) keeps your
 terminal prompt clean instead of its startup messages interleaving with it -
 check on it anytime with `tail -f relay.log`.
 
+### Starting from an uncertain state
+
+The sequence above assumes a clean slate. If you're not sure what's still
+running from an earlier session - a previous `relay.py` you forgot about,
+a stale `rotctld`, a leftover debugging process - don't guess and don't
+just try to start everything again on top of it. Kill it all, verify it's
+actually gone, then rebuild step by step with a checkpoint after each one.
+This is slower than the Daily workflow above, on purpose - it's for
+recovering from confusion, not for a normal day.
+
+**0. Kill everything:**
+```
+pkill -f relay.py
+pkill -f run_passes.py
+pkill -f SatsDecoder
+pkill -f geoscan1.py; pkill -f geoscan2.py; pkill -f geoscan4.py; pkill -f geoscan5.py
+pkill -f rotctld
+pkill -f rigctld
+```
+"No process found" for any of these is fine - it just means that one
+wasn't running.
+
+**Verify it's actually clean before rebuilding anything:**
+```
+python3 doctor.py
+```
+Check two things specifically: "Fleet-related processes currently
+running" should say `none found`, and every port (4532, 4533,
+8101-8104, 9101-9104) should say `free`. Don't move on until both are
+true - if anything still shows up, that's a process the kill list above
+didn't catch, and it needs its own `kill <PID>` before continuing.
+
+**1-2. Refresh TLEs, then sanity-check config:**
+```
+curl -sL "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle" -o tle/amateur.txt
+head -6 tle/amateur.txt
+python3 doctor.py
+```
+Confirm `head` shows real TLE data (a satellite name line, then two lines
+starting `1 ` and `2 ` with plausible numbers) - not empty, not an HTML
+error page. Confirm `doctor.py` ends in `0 failed` - if `.grc` files were
+touched since the last session (GNU Radio Companion re-saving them counts),
+you may see a "`.py` is up to date with `.grc`" failure here; fix with
+`./regen_all.sh` before continuing.
+
+**3. Plan passes:**
+```
+python3 plan_passes.py --hours 24 --interactive
+```
+Before approving, scan the printed AOS/LOS times across *different*
+satellites for anything close together - overlapping approved passes
+aren't flagged automatically (see caveat under `plan_passes.py` below),
+and the one that starts first wins the SDR for its whole duration.
+
+**4. Start the relay, then confirm it before moving on:**
+```
+nohup python3 relay.py > relay.log 2>&1 &
+cat relay.log
+```
+If `cat` shows nothing, wait a second and run it again - backgrounding
+sometimes returns your prompt before the startup banner prints. You're
+looking for all four `producer :.../consumer :... (TCP keepalive on)`
+lines and no `OSError: ... address already in use` traceback. If you see
+that traceback, something from step 0 wasn't actually killed - go back to
+`doctor.py`, don't just retry the same command.
+
+**5. Start the rotor, then confirm it before moving on:**
+```
+rotctld -m 607 -r /dev/ttyUSB1   # match your actual device
+python3 doctor.py
+```
+Check the `4533 (rotctld (antenna))` line specifically - it should show
+`IN USE` with your `rotctld` PID, not `free`.
+
+**6. Connect all four decoder tabs, then confirm from the relay's side:**
+Point all four SatsDecoder tabs at `127.0.0.1`, ports 8101/8102/8103/8104,
+then check:
+```
+tail -20 relay.log
+```
+You want four separate `consumer connected` lines, one per satellite -
+not fewer, and not the same satellite twice while another is missing.
+
+**7. Execute:**
+```
+python3 run_passes.py --verbose
+```
+On startup it should print the number of approved passes loaded and
+identify the next one by name and AOS time. If a pass should be starting
+soon and nothing happens, that means it's still counting down - it won't
+launch a flowgraph until wall-clock AOS actually arrives.
+
 **`add_satellite.py`** - generates a new satellite's `.grc` from an
 existing one as a template and adds its config entry, in one step:
 ```
