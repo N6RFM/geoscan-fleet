@@ -65,6 +65,7 @@ class SatRelay:
     def __init__(self, name):
         self.name = name
         self.consumers = set()  # set of writers
+        self.last_data_sent = {}  # writer -> monotonic time of last forwarded byte
 
     def log(self, msg):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -79,11 +80,13 @@ class SatRelay:
                 data = await reader.read(4096)
                 if not data:
                     break
+                now = time.monotonic()
                 dead = set()
                 for w in self.consumers:
                     try:
                         w.write(data)
                         await w.drain()
+                        self.last_data_sent[w] = now
                     except (ConnectionResetError, BrokenPipeError, OSError):
                         dead.add(w)
                 self.consumers -= dead
@@ -94,16 +97,22 @@ class SatRelay:
     async def handle_consumer(self, reader, writer):
         tune_keepalive(writer)
         peer = writer.get_extra_info("peername")
+        connected_at = time.monotonic()
         self.log(f"consumer connected: {peer}")
         self.consumers.add(writer)
+        self.last_data_sent[writer] = connected_at
         try:
             while not reader.at_eof():
                 await reader.read(4096)  # discard anything the consumer sends
-        except (ConnectionResetError, OSError):
-            pass
+        except (ConnectionResetError, OSError) as e:
+            self.log(f"consumer {peer} error: {e!r}")
         finally:
-            self.log(f"consumer disconnected: {peer}")
+            uptime = time.monotonic() - connected_at
+            idle = time.monotonic() - self.last_data_sent.get(writer, connected_at)
+            self.log(f"consumer disconnected: {peer} "
+                     f"(connected {uptime:.1f}s, idle {idle:.1f}s before drop)")
             self.consumers.discard(writer)
+            self.last_data_sent.pop(writer, None)
             writer.close()
 
 
