@@ -633,6 +633,13 @@ config-only checks can't see.
   worth re-checking if you ever change Hamlib versions.
 - **Doppler sign/magnitude**: sanity-check `doppler_hz()` in
   `run_passes.py` against a known pass before trusting a real recording.
+- **Rotor update throttling**: `Rotctld.point()` only sends a new
+  position when az or el has moved `>= 5.0` degrees, or `>= 5.0` seconds
+  have passed since the last command actually sent (whichever comes
+  first) - tuned to cut down command spam during a fast overhead pass
+  without ever going silent for long. Both are keyword defaults
+  (`min_move_deg`, `min_interval_s`) on `point()` if your rotor's actual
+  slew rate ever calls for different values.
 - Hand-authored `.grc` blocks (`epy_block`s, `network_socket_pdu`) were
   written outside GNU Radio Companion - open each block's properties
   dialog once after import to let GRC regenerate anything it flags.
