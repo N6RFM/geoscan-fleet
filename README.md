@@ -304,10 +304,8 @@ you may see a "`.py` is up to date with `.grc`" failure here; fix with
 ```
 python3 plan_passes.py --hours 24 --interactive
 ```
-Before approving, scan the printed AOS/LOS times across *different*
-satellites for anything close together - overlapping approved passes
-aren't flagged automatically (see caveat under `plan_passes.py` below),
-and the one that starts first wins the SDR for its whole duration.
+Before approving, you'll get a chance to actively resolve any overlaps
+between different satellites - see the note under `plan_passes.py` below.
 
 **4. Start the relay, then confirm it before moving on:**
 ```
@@ -389,10 +387,12 @@ Or hand-edit `schedule.yaml` afterward, setting `approved: false` on
 anything you don't want recorded. Nothing is ever recorded on a pass that
 isn't in this approved list.
 
-Note: if two satellites' approved passes overlap, the executor only
-records whichever started first (single SDR) - `plan_passes.py` doesn't
-warn about overlaps yet, so scan the printed AOS times for anything close
-together before approving both.
+Note: if two satellites' approved passes overlap, only one can actually
+record (single SDR, no pre-emption). `plan_passes.py` detects this
+automatically after you approve/reject: with `--interactive` it prompts
+you to actively choose which one to keep (or both, or neither); without
+it, it prints a clear warning listing every conflict rather than staying
+silent, and leaves the existing first-started-wins behavior in place.
 
 **`run_passes.py`** - the executor. Reads `schedule.yaml`, and for each
 approved pass: waits for wall-clock AOS, launches that satellite's
