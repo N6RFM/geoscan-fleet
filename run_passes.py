@@ -143,15 +143,25 @@ class Rotctld:
         self.host, self.port = host, port
         self.sock = None
         self.last = None  # (az, el) last commanded, to avoid chatter
+        self.last_sent_at = None  # monotonic time of last actual send
 
     def _connect(self):
         self.sock = socket.create_connection((self.host, self.port), timeout=3)
 
-    def point(self, az_deg, el_deg, min_move_deg=1.0):
+    def point(self, az_deg, el_deg, min_move_deg=5.0, min_interval_s=5.0):
+        """Send a new position only if az or el has moved by at least
+        min_move_deg, OR at least min_interval_s has passed since the last
+        command actually sent - whichever comes first. Keeps the rotor from
+        being spammed with near-identical positions during a fast slew,
+        while still guaranteeing an update at least every min_interval_s
+        even during a slow-changing stretch of the pass."""
+        now = time.monotonic()
         if self.last is not None:
             daz = abs(az_deg - self.last[0])
             delv = abs(el_deg - self.last[1])
-            if daz < min_move_deg and delv < min_move_deg:
+            moved_enough = daz >= min_move_deg or delv >= min_move_deg
+            time_elapsed = self.last_sent_at is None or (now - self.last_sent_at) >= min_interval_s
+            if not moved_enough and not time_elapsed:
                 return
         try:
             if self.sock is None:
@@ -160,6 +170,7 @@ class Rotctld:
             self.sock.settimeout(0.5)
             self.sock.recv(64)
             self.last = (az_deg, el_deg)
+            self.last_sent_at = now
         except OSError:
             self.sock = None  # reconnect next call
 
