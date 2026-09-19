@@ -10,8 +10,9 @@ if ! command -v grcc &> /dev/null; then
 fi
 
 for grc in flowgraphs/*.grc; do
+    outdir="$(dirname "$grc")"
     echo "Generating ${grc%.grc}.py ..."
-    grcc "$grc"
+    grcc -o "$outdir" "$grc"
 done
 
 echo
