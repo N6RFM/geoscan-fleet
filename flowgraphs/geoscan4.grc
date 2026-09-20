@@ -107,13 +107,66 @@ blocks:
     coordinate: [336, 352.0]
     rotation: 0
     state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    _source_code: "\"\"\"\nembedded python block: kiss_encode_pdu\n\nWraps each incoming\
+      \ PDU in real KISS framing (FEND + command byte +\nescaped payload + FEND) before\
+      \ handing it to network_socket_pdu.\n\nnetwork_socket_pdu is a generic GNU Radio\
+      \ core block with no knowledge\nof KISS - it just writes whatever PDU bytes\
+      \ it's given straight to the\nsocket. satellites_kiss_file_sink applies KISS\
+      \ framing internally when\nwriting to a file, which is why every .kss file this\
+      \ station has ever\nproduced parses correctly - but nothing was applying that\
+      \ same framing\non the live TCP path, so downstream every PDU arrived as an\
+      \ unframed\nblob with no 0xC0 delimiter for SatsDecoder's kiss_read_stream()\
+      \ to\nfind. Multiple PDUs arriving close together (e.g. during an image\nburst)\
+      \ then get coalesced by TCP into one recv() with no way to tell\nwhere one frame\
+      \ ends and the next begins.\n\nInsert this block between satellites_satellite_decoder_0's\
+      \ \"out\" port\nand network_socket_pdu_0's \"pdus\" input (remove the direct\
+      \ connection,\nroute through this block instead). No other wiring changes needed.\n\
+      \"\"\"\n\nimport numpy as np\nfrom gnuradio import gr\nimport pmt\n\nFEND =\
+      \ 0xC0\nFESC = 0xDB\nTFEND = 0xDC\nTFESC = 0xDD\n\n\ndef kiss_escape(data: bytes)\
+      \ -> bytes:\n    out = bytearray()\n    for b in data:\n        if b == FESC:\n\
+      \            out.append(FESC)\n            out.append(TFESC)\n        elif b\
+      \ == FEND:\n            out.append(FESC)\n            out.append(TFEND)\n  \
+      \      else:\n            out.append(b)\n    return bytes(out)\n\n\nclass blk(gr.sync_block):\n\
+      \    \"\"\"Wrap each PDU in KISS framing (FEND + cmd byte + escaped data + FEND)\"\
+      \"\"\n\n    def __init__(self, kiss_command=0x00):\n        gr.sync_block.__init__(\n\
+      \            self,\n            name='kiss_encode_pdu',\n            in_sig=None,\n\
+      \            out_sig=None,\n        )\n        self.kiss_command = kiss_command\n\
+      \        self.message_port_register_in(pmt.intern('in'))\n        self.set_msg_handler(pmt.intern('in'),\
+      \ self.handle_msg)\n        self.message_port_register_out(pmt.intern('out'))\n\
+      \n    def handle_msg(self, msg):\n        try:\n            if pmt.is_pair(msg):\n\
+      \                data_pmt = pmt.cdr(msg)\n            else:\n              \
+      \  data_pmt = msg\n            payload = bytes(bytearray(pmt.u8vector_elements(data_pmt)))\n\
+      \        except Exception as e:\n            print(f\"[kiss_encode_pdu] could\
+      \ not extract PDU bytes: {e}\")\n            return\n\n        framed = bytes([FEND,\
+      \ self.kiss_command]) + kiss_escape(payload) + bytes([FEND])\n        out_vec\
+      \ = pmt.init_u8vector(len(framed), list(framed))\n        self.message_port_pub(pmt.intern('out'),\
+      \ pmt.cons(pmt.PMT_NIL, out_vec))\n"
+    affinity: ''
+    alias: ''
+    comment: ''
+    kiss_command: '0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: ('kiss_encode_pdu', 'blk', [('kiss_command', '0')], [('in', 'message',
+      1)], [('out', 'message', 1)], 'Wrap each PDU in KISS framing (FEND + cmd byte
+      + escaped data + FEND)', ['kiss_command'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [984, 376.0]
+    rotation: 0
+    state: enabled
 - name: filerepeater_AdvFileSink_0
   id: filerepeater_AdvFileSink
   parameters:
     affinity: ''
     alias: ''
     autostartFreqChange: 'False'
-    basedir: /home/YOUR_USERNAME/Desktop
+    basedir: /home/bob/Desktop
     basefile: geoscan4
     bits_per_sample: '8'
     comment: ''
@@ -123,7 +176,7 @@ blocks:
     maxTimeSec: '0'
     radioCenterFreq: freq
     recordOnStart: 'True'
-    sampleRate: '2500000'
+    sampleRate: '50000'
     type: complex
     unbuffered: 'False'
     vlen: '1'
@@ -239,6 +292,19 @@ blocks:
     coordinate: [1104, 144.0]
     rotation: 0
     state: true
+- name: note_1
+  id: note
+  parameters:
+    alias: ''
+    comment: ''
+    note: Required for Satsdecoder downstream
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [920, 432.0]
+    rotation: 0
+    state: enabled
 - name: offset
   id: parameter
   parameters:
@@ -736,7 +802,7 @@ blocks:
     alias: ''
     append: 'True'
     comment: ''
-    file: /home/YOUR_USERNAME/Desktop/GEOSCAN-4.kss
+    file: /home/bob/Desktop/GEOSCAN-4.kss
     options: '""'
   states:
     bus_sink: false
@@ -769,7 +835,7 @@ blocks:
     alias: ''
     comment: ''
     definition: file
-    file: /home/YOUR_USERNAME/Launches/current/GEOSCAN-4.yml
+    file: /home/bob/Launches/VL-25-07-2025/GEOSCAN-4.yml
     iq: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
@@ -799,20 +865,21 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1088, 416.0]
+    coordinate: [1064, 576.0]
     rotation: 0
     state: enabled
 
 connections:
 - [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
 - [blocks_multiply_xx_1, '0', low_pass_filter_0, '0']
+- [epy_block_0, out, network_socket_pdu_0, pdus]
 - [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
 - [low_pass_filter_0, '0', qtgui_waterfall_sink_x_0, '0']
 - [low_pass_filter_0, '0', satellites_satellite_decoder_0, '0']
 - [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
 - [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
 - [satellites_print_timestamp_0, out, satellites_hexdump_sink_0, in]
-- [satellites_satellite_decoder_0, out, network_socket_pdu_0, pdus]
+- [satellites_satellite_decoder_0, out, epy_block_0, in]
 - [satellites_satellite_decoder_0, out, satellites_kiss_file_sink_0, in]
 - [satellites_satellite_decoder_0, out, satellites_print_timestamp_0, in]
 - [satellites_satellite_decoder_0, out, satellites_telemetry_submit_0, in]
