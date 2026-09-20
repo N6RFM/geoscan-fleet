@@ -103,8 +103,8 @@ def main():
     now = datetime.now(timezone.utc)
     next_shown = False
 
-    print(f"{'STATUS':10s} {'SATELLITE':12s} {'AOS':22s} {'LOS':22s} {'DUR':8s} {'MAX EL':7s}")
-    print("-" * 85)
+    print(f"{'STATUS':13s} {'SATELLITE':12s} {'AOS':22s} {'LOS':22s} {'DUR':8s} {'MAX EL':7s}")
+    print("-" * 88)
 
     for aos, los, sat, elev, raw in enriched:
         if los and los < now:
@@ -121,12 +121,12 @@ def main():
             status = "(unapproved)"
 
         elev_str = f"{elev:.0f}deg" if isinstance(elev, (int, float)) else "?"
-        print(f"{status:10s} {sat:12s} {fmt_dt(aos):22s} {fmt_dt(los):22s} "
+        print(f"{status:13s} {sat:12s} {fmt_dt(aos):22s} {fmt_dt(los):22s} "
               f"{fmt_duration(aos, los):8s} {elev_str:7s}")
 
     total = len(enriched)
     remaining = sum(1 for aos, los, *_ in enriched if aos and aos > now)
-    print("-" * 85)
+    print("-" * 88)
     print(f"{total} pass(es) shown, {remaining} still upcoming.")
 
 
