@@ -86,7 +86,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [80, 384.0]
+    coordinate: [80, 400.0]
     rotation: 0
     state: enabled
 - name: blocks_multiply_xx_1
@@ -184,7 +184,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [744, 412.0]
+    coordinate: [744, 380.0]
     rotation: 0
     state: enabled
 - name: freq
@@ -302,7 +302,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1072, 472.0]
+    coordinate: [1040, 472.0]
     rotation: 0
     state: enabled
 - name: offset
@@ -359,7 +359,7 @@ blocks:
     ant7: ''
     ant8: ''
     ant9: ''
-    args: driver=airspy,serial=466c64c8323184c7,soapy=0
+    args: driver=airspy,serial=466c64c8323184c7,soapy=0,bitpack=false
     bb_gain0: '20'
     bb_gain1: '20'
     bb_gain10: '20'
@@ -741,7 +741,7 @@ blocks:
     bus_structure: null
     coordinate: [744, 144.0]
     rotation: 0
-    state: enabled
+    state: disabled
 - name: rig_freq_poller_0
   id: epy_block
   parameters:

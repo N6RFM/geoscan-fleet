@@ -35,6 +35,66 @@ python3 doctor.py
 See "One-time setup" below for the full walkthrough, and "Troubleshooting"
 near the end if something doesn't come back clean.
 
+## How the pieces fit together
+
+Every satellite in this fleet follows the same pipeline, worth
+understanding before the sections below dive into each piece
+individually:
+
+```
+GNU Radio flowgraph  --->  relay.py  --->  SatsDecoder
+(one process per pass,      (one long-       (stays open,
+ launched fresh at AOS       running          one tab per
+ by run_passes.py,           process per      satellite,
+ exits at LOS)               satellite,       connected once)
+                              started once
+                              per session)
+```
+
+**The flowgraph** is generated per satellite from that satellite's
+`.grc` file, demodulates the live signal, and hands decoded frames to a
+few destinations at once - a `.kss` file on disk, a console printout,
+and a live network connection.
+
+**SatsDecoder** is the downstream decoder GUI at the end of that network
+connection - an existing, general-purpose open-source project
+([baskiton/SatsDecoder](https://github.com/baskiton/SatsDecoder)), not
+something written for this project. It isn't GEOSCAN-specific: it
+decodes frames for a wide range of amateur/university cubesats via YAML
+satellite definitions, and gives a persistent per-satellite tab with a
+live history of decoded frames over a KISS TCP link. It was chosen
+because it already covers exactly this need - reading real-time KISS
+frames off a socket, per satellite - rather than building a bespoke
+decoder GUI from scratch. Earlier issues found in it during this
+project's development (a false-disconnect bug, and a KISS-timestamp
+`OverflowError`) have both since been fixed in upstream's `nightly`
+branch - confirmed directly against commit `2112e3f` ("#7 catch
+overflow error when parsing KISS-timestamp"), sitting on top of the
+`d94ff8e` refactor that introduced it. Run from `nightly`, not `main`;
+it's unclear as of this writing when or whether these land in `main`.
+
+**`relay.py`** sits between the two because they have very different
+lifecycles. The flowgraph is short-lived - `run_passes.py` launches it
+fresh at every AOS and it exits at LOS, every pass, every satellite,
+independently. SatsDecoder, by contrast, is meant to be left open with
+each satellite's tab connected once and left alone; it doesn't expect
+the far end of that connection to disappear and reappear every few
+minutes. Without something in between, either SatsDecoder would need to
+detect and reconnect around every single pass boundary itself, or the
+flowgraph would need to somehow wait for a decoder GUI to be listening
+before it could start. `relay.py` decouples the two entirely: it's a
+single long-running process per satellite, started once at the
+beginning of a session, that the short-lived flowgraph connects *out* to
+as a client at every AOS, and that SatsDecoder connects *in* to once and
+leaves alone. Either side can restart independently - a flowgraph
+crashing mid-pass, or a SatsDecoder tab getting disconnected - without
+the other one needing to know or care. Its TCP keepalive and
+per-consumer diagnostic logging (see "The relay" section below) exist
+specifically to make that long-lived middle process itself trustworthy,
+since if it ever silently died or lost track of a connection, both
+sides would be depending on a link that no longer worked without either
+one finding out.
+
 ## Folder layout
 
 ```

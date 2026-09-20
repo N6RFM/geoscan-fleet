@@ -359,7 +359,7 @@ blocks:
     ant7: ''
     ant8: ''
     ant9: ''
-    args: driver=airspy,serial=466c64c8323184c7,soapy=0
+    args: driver=airspy,serial=466c64c8323184c7,soapy=0,bitpack=false
     bb_gain0: '20'
     bb_gain1: '20'
     bb_gain10: '20'
@@ -741,7 +741,7 @@ blocks:
     bus_structure: null
     coordinate: [744, 144.0]
     rotation: 0
-    state: enabled
+    state: disabled
 - name: rig_freq_poller_0
   id: epy_block
   parameters:
