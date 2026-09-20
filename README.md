@@ -45,6 +45,7 @@ fleet/
 ├── plan_passes.py         # predicts passes, lets you approve/reject them
 ├── run_passes.py          # executor: launches flowgraphs at AOS, feeds Doppler+rotor
 ├── relay.py                # persistent KISS relay for your downstream decoder
+├── show_queue.py            # prints the approved pass queue from schedule.yaml
 ├── doctor.py                # one command: environment + config sanity check
 ├── preflight.py             # config checks + optional --live flowgraph launch
 ├── test_downstream.py       # pushes test frames through the relay to your decoder(s)
@@ -255,6 +256,27 @@ output to a log file (rather than `python3 relay.py &` directly) keeps your
 terminal prompt clean instead of its startup messages interleaving with it -
 check on it anytime with `tail -f relay.log`.
 
+### Checking the pass queue
+
+`run_passes.py` doesn't have a `--status` or `--list` flag; it just prints
+the next pass as it runs. To see the full approved queue at any time -
+whether or not `run_passes.py` is currently running:
+```
+python3 show_queue.py
+```
+This reads `schedule.yaml` directly and prints every `approved` pass,
+sorted by AOS, with a status column (`past` / `ACTIVE` / `NEXT` /
+`upcoming`), duration, and max elevation.
+
+To also see unapproved/rejected passes (e.g. ones `plan_passes.py`'s
+overlap resolution dropped):
+```
+python3 show_queue.py --all
+```
+`schedule.yaml`'s pass fields as of this writing: `name`, `norad`, `aos`,
+`los`, `max_elevation_deg`, `approved`. If `plan_passes.py`'s schema ever
+changes, update the key lists near the top of `show_queue.py` to match.
+
 ### Starting from an uncertain state
 
 The sequence above assumes a clean slate. If you're not sure what's still
@@ -429,6 +451,10 @@ flowgraph for real. See "Preflight checks" above.
 connected decoder(s) for every satellite, automatically using real
 captured frames if any exist yet or synthetic ones if not. See "Sending
 test frames" above.
+
+**`show_queue.py`** - reads `schedule.yaml` and prints the approved pass
+queue (satellite, AOS, LOS, duration, max elevation), independent of
+whether `run_passes.py` is running. See "Checking the pass queue" above.
 
 ## How Doppler control works
 
