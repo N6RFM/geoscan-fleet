@@ -37,3 +37,4 @@ __pycache__/
 # Editor/OS cruft
 .DS_Store
 *.swp
+run_passes.out
