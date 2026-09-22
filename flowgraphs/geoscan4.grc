@@ -63,7 +63,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [193, 7]
+    coordinate: [184, 32.0]
     rotation: 0
     state: enabled
 - name: analog_sig_source_x_0_0
@@ -252,7 +252,7 @@ blocks:
     maxoutbuf: '0'
     minoutbuf: '0'
     mtu: '10000'
-    port: '9103'
+    port: '9104'
     tcp_no_delay: 'True'
     type: TCP_CLIENT
   states:
@@ -865,7 +865,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1064, 576.0]
+    coordinate: [1040, 584.0]
     rotation: 0
     state: enabled
 

@@ -11,7 +11,7 @@ options:
     gen_linking: dynamic
     generate_options: qt_gui
     hier_block_src_path: '.:'
-    id: geoscan5
+    id: geoscan6
     max_nouts: '0'
     output_language: python
     placement: (0,0)
@@ -22,7 +22,7 @@ options:
     run_options: prompt
     sizing_mode: fixed
     thread_safe_setters: ''
-    title: GEOSCAN-5
+    title: GEOSCAN-6
     window_size: (1000,1000)
   states:
     bus_sink: false
@@ -86,7 +86,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [88, 400.0]
+    coordinate: [88, 416.0]
     rotation: 0
     state: enabled
 - name: blocks_multiply_xx_1
@@ -157,7 +157,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1032, 424.0]
+    coordinate: [1056, 408.0]
     rotation: 0
     state: enabled
 - name: filerepeater_AdvFileSink_0
@@ -167,7 +167,7 @@ blocks:
     alias: ''
     autostartFreqChange: 'False'
     basedir: /home/bob/Desktop
-    basefile: geoscan5
+    basefile: geoscan6
     bits_per_sample: '8'
     comment: ''
     honorFreqChange: 'False'
@@ -184,7 +184,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [712, 388.0]
+    coordinate: [752, 404.0]
     rotation: 0
     state: enabled
 - name: freq
@@ -196,7 +196,7 @@ blocks:
     label: frequency
     short_id: f
     type: eng_float
-    value: '436663000'
+    value: '436938000'
   states:
     bus_sink: false
     bus_source: false
@@ -252,14 +252,14 @@ blocks:
     maxoutbuf: '0'
     minoutbuf: '0'
     mtu: '10000'
-    port: '9105'
+    port: '9106'
     tcp_no_delay: 'True'
     type: TCP_CLIENT
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1248, 448.0]
+    coordinate: [1296, 424.0]
     rotation: 0
     state: enabled
 - name: nfreq
@@ -271,7 +271,7 @@ blocks:
     label: Nominal Frequency
     short_id: ''
     type: eng_float
-    value: '436663000'
+    value: '436938000'
   states:
     bus_sink: false
     bus_source: false
@@ -302,7 +302,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1008, 488.0]
+    coordinate: [1040, 472.0]
     rotation: 0
     state: enabled
 - name: offset
@@ -729,7 +729,7 @@ blocks:
     legend: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
-    name: GEOSCAN-5
+    name: GEOSCAN-1
     nconnections: '1'
     showports: 'False'
     type: complex
@@ -802,13 +802,13 @@ blocks:
     alias: ''
     append: 'True'
     comment: ''
-    file: /home/bob/Desktop/GEOSCAN-5.kss
+    file: /home/bob/Desktop/GEOSCAN-6.kss
     options: '""'
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1152, 320.0]
+    coordinate: [1120, 320.0]
     rotation: 0
     state: enabled
 - name: satellites_print_timestamp_0
@@ -835,12 +835,12 @@ blocks:
     alias: ''
     comment: ''
     definition: file
-    file: /home/bob/Launches/VL-25-07-2025/GEOSCAN-5.yml
+    file: /home/bob/Launches/VL-25-07-2025/GEOSCAN-6.yml
     iq: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
     name: ''
-    norad: '64891'
+    norad: '64880'
     options: ''
     samp_rate: '50000'
   states:
@@ -856,7 +856,7 @@ blocks:
     affinity: ''
     alias: ''
     comment: ''
-    norad: '64891'
+    norad: '64879'
     options: '""'
     port: '0'
     server: '"SatNOGS"'
@@ -865,7 +865,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1032, 568.0]
+    coordinate: [1056, 544.0]
     rotation: 0
     state: enabled
 

@@ -86,7 +86,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [80, 384.0]
+    coordinate: [80, 400.0]
     rotation: 0
     state: enabled
 - name: blocks_multiply_xx_1
@@ -808,7 +808,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1248, 296.0]
+    coordinate: [1216, 312.0]
     rotation: 0
     state: enabled
 - name: satellites_print_timestamp_0
