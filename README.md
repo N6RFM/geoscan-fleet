@@ -1,33 +1,40 @@
-# geoscan-fleet
+# groundtrack
 
-Unattended GNU Radio ground station automation for the GEOSCAN cubesat
-constellation (GEOSCAN-1, -2, -4, -5). Built on top of
-[gr-satellites](https://github.com/daniestevez/gr-satellites), Hamlib, and
-Skyfield.
+Unattended GNU Radio ground station automation for tracking multiple
+satellites on a single shared SDR and rotor. Originally built for the
+GEOSCAN cubesat constellation; now satellite-agnostic - any mix of
+decode-and-relay satellites (built on
+[gr-satellites](https://github.com/daniestevez/gr-satellites)) and
+recording-only satellites (raw IQ capture, no decoder required) can
+share the same schedule, the same hardware, and the same toolkit. Also
+uses Hamlib and Skyfield.
 
 Point it at your ground station's coordinates and SDR, and it predicts
 upcoming passes for review/approval, then for each approved pass:
 retunes for live Doppler shift via a Hamlib `rigctld`, points an antenna
-rotor via `rotctld`, records an IQ file, and forwards decoded KISS frames
-to your downstream decoder(s) through a relay that stays connected across
-every pass - no manual tuning, no re-clicking "Engage" in Gpredict, no
-reconnecting your decoder every AOS.
+rotor via `rotctld`, records an IQ file, and - for satellites configured
+with a downstream decoder - forwards decoded KISS frames through a relay
+that stays connected across every pass - no manual tuning, no
+re-clicking "Engage" in Gpredict, no reconnecting your decoder every
+AOS. Satellites with no decoder yet just record raw IQ for later
+analysis; nothing else in the toolkit requires one.
 
 **What it assumes you already have:** GNU Radio 3.10+ with an SDR
 supported by `gr-osmosdr` (developed against an Airspy), `gr-satellites`
-installed, Hamlib (`rigctld`/`rotctld`), Python 3 with `skyfield` and
-`pyyaml`, and (optionally) a Hamlib-compatible antenna rotor and its
-serial interface.
+installed (only needed for satellites that decode - recording-only
+satellites don't need it), Hamlib (`rigctld`/`rotctld`), Python 3 with
+`skyfield` and `pyyaml`, and (optionally) a Hamlib-compatible antenna
+rotor and its serial interface.
 
 **What it doesn't do:** demodulation/decoding itself (that's
-`gr-satellites`), or drive a rotor/radio that Hamlib doesn't already
-support.
+`gr-satellites`, for satellites that use it), or drive a rotor/radio
+that Hamlib doesn't already support.
 
 ## Quick start
 
 ```
-git clone git@github.com:n6rfm/geoscan-fleet.git
-cd geoscan-fleet
+git clone git@github.com:n6rfm/groundtrack.git
+cd groundtrack
 cp satellites.example.yaml satellites.yaml
 python3 doctor.py
 ```
@@ -37,9 +44,8 @@ near the end if something doesn't come back clean.
 
 ## How the pieces fit together
 
-Every satellite in this fleet follows the same pipeline, worth
-understanding before the sections below dive into each piece
-individually:
+Every satellite follows the same pipeline, worth understanding before
+the sections below dive into each piece individually:
 
 ```
 GNU Radio flowgraph  --->  relay.py  --->  SatsDecoder
@@ -48,34 +54,44 @@ GNU Radio flowgraph  --->  relay.py  --->  SatsDecoder
  by run_passes.py,           process per      satellite,
  exits at LOS)               satellite,       connected once)
                               started once
-                              per session)
+                              per session -
+                              only for
+                              satellites
+                              configured
+                              to use it)
 ```
 
 **The flowgraph** is generated per satellite from that satellite's
-`.grc` file, demodulates the live signal, and hands decoded frames to a
-few destinations at once - a `.kss` file on disk, a console printout,
-and a live network connection.
+`.grc` file. For satellites with a decoder, it demodulates the live
+signal and hands decoded frames to a few destinations at once - a
+`.kss` file on disk, a console printout, and a live network connection.
+For recording-only satellites, it just tunes, corrects for Doppler, and
+writes raw IQ to disk - no decoder, no KISS output, no network
+connection at all.
 
 **SatsDecoder** is the downstream decoder GUI at the end of that network
-connection - an existing, general-purpose open-source project
+connection, for satellites that have one - an existing, general-purpose
+open-source project
 ([baskiton/SatsDecoder](https://github.com/baskiton/SatsDecoder)), not
-something written for this project. It isn't GEOSCAN-specific: it
-decodes frames for a wide range of amateur/university cubesats via YAML
-satellite definitions, and gives a persistent per-satellite tab with a
-live history of decoded frames over a KISS TCP link. It was chosen
-because it already covers exactly this need - reading real-time KISS
-frames off a socket, per satellite - rather than building a bespoke
-decoder GUI from scratch. Earlier issues found in it during this
-project's development (a false-disconnect bug, and a KISS-timestamp
-`OverflowError`) have both since been fixed in upstream's `nightly`
-branch - confirmed directly against commit `2112e3f` ("#7 catch
-overflow error when parsing KISS-timestamp"), sitting on top of the
-`d94ff8e` refactor that introduced it. Run from `nightly`, not `main`;
-it's unclear as of this writing when or whether these land in `main`.
+something written for this project. It isn't specific to any one
+satellite family: it decodes frames for a wide range of amateur/
+university cubesats via YAML satellite definitions, and gives a
+persistent per-satellite tab with a live history of decoded frames over
+a KISS TCP link. It was chosen because it already covers exactly this
+need - reading real-time KISS frames off a socket, per satellite -
+rather than building a bespoke decoder GUI from scratch. Earlier issues
+found in it during this project's development (a false-disconnect bug,
+and a KISS-timestamp `OverflowError`) have both since been fixed in
+upstream's `nightly` branch - confirmed directly against commit
+`2112e3f` ("#7 catch overflow error when parsing KISS-timestamp"),
+sitting on top of the `d94ff8e` refactor that introduced it. Run from
+`nightly`, not `main`; it's unclear as of this writing when or whether
+these land in `main`.
 
-**`relay.py`** sits between the two because they have very different
-lifecycles. The flowgraph is short-lived - `run_passes.py` launches it
-fresh at every AOS and it exits at LOS, every pass, every satellite,
+**`relay.py`** sits between the flowgraph and SatsDecoder, for
+satellites that use both, because they have very different lifecycles.
+The flowgraph is short-lived - `run_passes.py` launches it fresh at
+every AOS and it exits at LOS, every pass, every satellite,
 independently. SatsDecoder, by contrast, is meant to be left open with
 each satellite's tab connected once and left alone; it doesn't expect
 the far end of that connection to disappear and reappear every few
@@ -95,16 +111,24 @@ since if it ever silently died or lost track of a connection, both
 sides would be depending on a link that no longer worked without either
 one finding out.
 
+**Recording-only satellites skip the last two pieces entirely.** A
+satellite with no `producer_port`/`consumer_port` in `satellites.yaml`
+has no relay involvement and no decoder requirement - `relay.py` skips
+it, `preflight.py`'s relay-specific checks skip it, and its flowgraph
+just records raw IQ for you to analyze or decode later, whenever a
+decoder for it exists. This is a first-class, fully supported mode, not
+a workaround - see "Adding a satellite" below.
+
 ## Folder layout
 
 ```
-fleet/
+groundtrack/
 ├── satellites.yaml       # ground station + per-satellite settings (edit this)
 ├── schedule.yaml          # generated by plan_passes.py - approved pass list
 ├── setup_station.py       # wizard: sets lat/lon/alt, TLE source, rig port
 ├── plan_passes.py         # predicts passes, lets you approve/reject them
 ├── run_passes.py          # executor: launches flowgraphs at AOS, feeds Doppler+rotor
-├── relay.py                # persistent KISS relay for your downstream decoder
+├── relay.py                # persistent KISS relay for satellites that use one
 ├── show_queue.py            # prints the approved pass queue from schedule.yaml
 ├── doctor.py                # one command: environment + config sanity check
 ├── preflight.py             # config checks + optional --live flowgraph launch
@@ -112,6 +136,8 @@ fleet/
 ├── send_test_frames.py      # single-satellite version test_downstream.py builds on
 ├── locate_decoders.py       # finds & patches decoder .yml paths in your .grc files
 ├── add_satellite.py         # generates a new satellite's .grc + config entry
+├── toggle_satellite.py      # enable/disable a satellite without deleting its config
+├── update_tle.py            # refreshes tle_file from a base of Celestrak groups + extras
 ├── ci_check.py              # portable checks - what CI runs on every push
 ├── regen_all.sh             # grcc every .grc, then run preflight.py
 ├── Makefile                 # make build / check / status / doctor
@@ -119,20 +145,23 @@ fleet/
 ├── .github/workflows/ci.yml # runs ci_check.py on every push/PR
 ├── flowgraphs/
 │   ├── kiss_encode_pdu.py  (reference copy - GRC embeds this as text in each .grc)
-│   ├── geoscan1.grc / .py  (.py must be generated by you, see Setup)
+│   ├── geoscan1.grc / .py  (decode-and-relay satellite; .py generated by you, see Setup)
 │   ├── geoscan2.grc / .py
+│   ├── geoscan3.grc / .py
 │   ├── geoscan4.grc / .py
-│   └── geoscan5.grc / .py
+│   ├── geoscan5.grc / .py
+│   ├── geoscan6.grc / .py
+│   └── scionx.grc / .py    (recording-only satellite - no decoder, no relay, see below)
 └── tle/
-    └── amateur.txt        # you fetch this - gitignored, not committed
+    └── amateur.txt         # generated by update_tle.py - gitignored, not committed
 ```
 
 ## One-time setup
 
 1. **Clone the repo and create your personal config:**
    ```
-   git clone git@github.com:n6rfm/geoscan-fleet.git
-   cd geoscan-fleet
+   git clone git@github.com:n6rfm/groundtrack.git
+   cd groundtrack
    cp satellites.example.yaml satellites.yaml
    ```
    `satellites.yaml` is gitignored on purpose - it holds your ground
@@ -155,12 +184,15 @@ fleet/
 4. **Generate the flowgraph scripts.** The `.grc` files in this repo were
    authored outside GNU Radio Companion, so the runnable `.py` files don't
    exist yet. On your machine, with GNU Radio and your SDR driver
-   installed, open each `.grc` and generate it (or `grcc flowgraphs/geoscan1.grc`
-   for each of the four). Also check, per file:
-   - the decoder block (`satellites_satellite_decoder`) points `file:` at
-     your real GEOSCAN-*.yml decoder definitions
+   installed, open each `.grc` and generate it (or `./regen_all.sh` for
+   all of them at once). Also check, per file:
+   - decode-and-relay satellites: the decoder block
+     (`satellites_satellite_decoder`) points `file:` at your real decoder
+     definition, and `network_socket_pdu` goes through `kiss_encode_pdu`
+     (see "Why every `.grc` needs a `kiss_encode_pdu` block" below)
    - the `AdvFileSink` block's `basedir` points somewhere sensible for IQ
-     output
+     output, and `recordOnStart` is `True` if you want unattended
+     automatic recording
 
 5. **Run the station setup wizard** to fill in `satellites.yaml`'s
    ground-station section:
@@ -172,17 +204,17 @@ fleet/
 
 6. **Fetch a TLE file** if you skipped that in step 5:
    ```
-   mkdir -p tle
-   curl -sL "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle" -o tle/amateur.txt
-   head -6 tle/amateur.txt   # sanity check - should look like real TLE data, not empty/HTML
+   python3 update_tle.py
    ```
-   If your GEOSCAN satellites aren't in the amateur group yet, pull them
-   individually by NORAD ID and append:
+   Fetches a base of Celestrak's `cubesat` and `amateur` groups by
+   default - between them, covering most satellites this kind of station
+   is likely to track - merges them, and validates that every satellite
+   currently in `satellites.yaml` is actually covered. If one isn't (too
+   new, uncoordinated, or simply in a different group), add it
+   individually by NORAD ID rather than needing a whole separate TLE
+   source:
    ```
-   curl -sL "https://celestrak.org/NORAD/elements/gp.php?CATNR=64880&FORMAT=tle" >> tle/amateur.txt
-   curl -sL "https://celestrak.org/NORAD/elements/gp.php?CATNR=64890&FORMAT=tle" >> tle/amateur.txt
-   curl -sL "https://celestrak.org/NORAD/elements/gp.php?CATNR=64892&FORMAT=tle" >> tle/amateur.txt
-   curl -sL "https://celestrak.org/NORAD/elements/gp.php?CATNR=64891&FORMAT=tle" >> tle/amateur.txt
+   python3 update_tle.py --extra-catnr 69880
    ```
    Refresh this daily (cron), and re-run `plan_passes.py` after each
    refresh - stale TLEs drift AOS/LOS times and Doppler accuracy.
@@ -277,7 +309,7 @@ For a deeper check that actually launches each flowgraph briefly (using
 real SDR hardware) to confirm it starts without crashing and correctly
 connects out to the relay:
 ```
-python3 preflight.py --live                    # tests all four, ~10s each
+python3 preflight.py --live                    # tests every satellite, ~10s each
 python3 preflight.py --live --only GEOSCAN-2    # just one
 ```
 This stands in for `relay.py` temporarily (so it doesn't need to already
@@ -289,7 +321,7 @@ it's testing the pipeline's wiring, not decoding a real signal.
 
 ```
 # 1. refresh TLEs (cron this)
-curl -sL "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle" -o tle/amateur.txt
+python3 update_tle.py
 
 # 2. sanity-check everything before touching hardware/schedules
 python3 doctor.py
@@ -297,15 +329,17 @@ python3 doctor.py
 # 3. plan: predict upcoming passes and approve/reject them
 python3 plan_passes.py --hours 24 --interactive
 
-# 4. start the persistent relay (leave running - only needs restarting if it dies)
+# 4. start the persistent relay (leave running - only needs restarting if it dies;
+#    only needed if at least one configured satellite uses one)
 nohup python3 relay.py > relay.log 2>&1 &
 
 # 5. start your antenna rotor daemon, pointed at your real hardware
 rotctld -m 607 -r /dev/ttyUSB2 &
 
-# 6. connect ALL FOUR decoder tabs/instances (8101/8102/8103/8104) and
-#    leave them open - see "The relay" below for why this matters and
-#    how to check it's actually done correctly
+# 6. connect a decoder tab/instance for each decode-and-relay satellite,
+#    at its own consumer_port, and leave them open - see "The relay"
+#    below for why this matters and how to check it's actually done
+#    correctly. Recording-only satellites need nothing here.
 
 # 7. execute: waits for AOS, launches flowgraphs, drives Doppler + rotor
 python3 run_passes.py --verbose
@@ -353,7 +387,7 @@ recovering from confusion, not for a normal day.
 pkill -f relay.py
 pkill -f run_passes.py
 pkill -f SatsDecoder
-pkill -f geoscan1.py; pkill -f geoscan2.py; pkill -f geoscan4.py; pkill -f geoscan5.py
+pkill -f "flowgraphs/"    # every satellite's compiled flowgraph, whatever they're named
 pkill -f rotctld
 pkill -f rigctld
 ```
@@ -365,23 +399,22 @@ wasn't running.
 python3 doctor.py
 ```
 Check two things specifically: "Fleet-related processes currently
-running" should say `none found`, and every port (4532, 4533,
-8101-8104, 9101-9104) should say `free`. Don't move on until both are
-true - if anything still shows up, that's a process the kill list above
-didn't catch, and it needs its own `kill <PID>` before continuing.
+running" should say `none found`, and every port doctor.py lists for
+your currently-enabled satellites should say `free`. Don't move on
+until both are true - if anything still shows up, that's a process the
+kill list above didn't catch, and it needs its own `kill <PID>` before
+continuing.
 
 **1-2. Refresh TLEs, then sanity-check config:**
 ```
-curl -sL "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle" -o tle/amateur.txt
-head -6 tle/amateur.txt
+python3 update_tle.py
 python3 doctor.py
 ```
-Confirm `head` shows real TLE data (a satellite name line, then two lines
-starting `1 ` and `2 ` with plausible numbers) - not empty, not an HTML
-error page. Confirm `doctor.py` ends in `0 failed` - if `.grc` files were
-touched since the last session (GNU Radio Companion re-saving them counts),
-you may see a "`.py` is up to date with `.grc`" failure here; fix with
-`./regen_all.sh` before continuing.
+Confirm `update_tle.py` reports every configured satellite covered, with
+no `MISSING from TLE file` lines. Confirm `doctor.py` ends in `0 failed` -
+if `.grc` files were touched since the last session (GNU Radio Companion
+re-saving them counts), you may see a "`.py` is up to date with `.grc`"
+failure here; fix with `./regen_all.sh` before continuing.
 
 **3. Plan passes:**
 ```
@@ -389,35 +422,43 @@ python3 plan_passes.py --hours 24 --interactive
 ```
 Before approving, you'll get a chance to actively resolve any overlaps
 between different satellites - see the note under `plan_passes.py` below.
+This also fully regenerates `schedule.yaml`, so any satellite you've
+since disabled with `toggle_satellite.py` simply won't have entries in
+it anymore - nothing to prune by hand.
 
-**4. Start the relay, then confirm it before moving on:**
+**4. Start the relay** (skip this step entirely if every currently-enabled
+satellite is recording-only), **then confirm it before moving on:**
 ```
 nohup python3 relay.py > relay.log 2>&1 &
 cat relay.log
 ```
 If `cat` shows nothing, wait a second and run it again - backgrounding
 sometimes returns your prompt before the startup banner prints. You're
-looking for all four `producer :.../consumer :... (TCP keepalive on)`
-lines and no `OSError: ... address already in use` traceback. If you see
-that traceback, something from step 0 wasn't actually killed - go back to
-`doctor.py`, don't just retry the same command.
+looking for a `producer :.../consumer :... (TCP keepalive on)` line for
+each satellite that uses the relay, and no `OSError: ... address already
+in use` traceback. If you see that traceback, something from step 0
+wasn't actually killed - go back to `doctor.py`, don't just retry the
+same command.
 
 **5. Start the rotor, then confirm it before moving on:**
 ```
 rotctld -m 607 -r /dev/ttyUSB1   # match your actual device
 python3 doctor.py
 ```
-Check the `4533 (rotctld (antenna))` line specifically - it should show
-`IN USE` with your `rotctld` PID, not `free`.
+Check the antenna rotor port line specifically (`rot_port` in
+`satellites.yaml`, default 4533) - it should show `IN USE` with your
+`rotctld` PID, not `free`.
 
-**6. Connect all four decoder tabs, then confirm from the relay's side:**
-Point all four SatsDecoder tabs at `127.0.0.1`, ports 8101/8102/8103/8104,
+**6. Connect a decoder tab for each decode-and-relay satellite, then
+confirm from the relay's side:**
+Point each tab at `127.0.0.1` and that satellite's own `consumer_port`,
 then check:
 ```
 tail -20 relay.log
 ```
-You want four separate `consumer connected` lines, one per satellite -
-not fewer, and not the same satellite twice while another is missing.
+You want one `consumer connected` line per satellite that uses the
+relay - not fewer, and not the same satellite twice while another is
+missing.
 
 **7. Execute:**
 ```
@@ -431,10 +472,21 @@ launch a flowgraph until wall-clock AOS actually arrives.
 **`add_satellite.py`** - generates a new satellite's `.grc` from an
 existing one as a template and adds its config entry, in one step:
 ```
-python3 add_satellite.py --name GEOSCAN-3 --norad 64881 --freq 435530000
+python3 add_satellite.py --name GEOSCAN-3 --norad 64893 --freq 435742000
 ```
 This is the tool to use for adding a satellite - `plan_passes.py
 --add-satellite` only adds the config entry and leaves the `.grc` to you.
+
+For a satellite with no decoder yet - raw IQ recording only, no relay,
+no KISS output:
+```
+python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 \
+    --template flowgraphs/geoscan1.grc --record-only
+```
+Strips the decoder/KISS/telemetry/relay wiring from the template
+automatically, sets `recordOnStart: True`, and adds the config entry
+with no `producer_port`/`consumer_port` - see "Adding a satellite" below
+for the full picture, including toggling satellites on and off.
 
 **`ci_check.py`** - the portable subset of `preflight.py`'s checks that
 can run with no GNU Radio, no Hamlib, and no real TLE file - what runs in
@@ -516,6 +568,31 @@ test frames" above.
 **`show_queue.py`** - reads `schedule.yaml` and prints the approved pass
 queue (satellite, AOS, LOS, duration, max elevation), independent of
 whether `run_passes.py` is running. See "Checking the pass queue" above.
+
+**`toggle_satellite.py`** - enable or disable a satellite without
+deleting its config:
+```
+python3 toggle_satellite.py --list
+python3 toggle_satellite.py --disable GEOSCAN-1
+python3 toggle_satellite.py --enable SCIONX
+```
+A disabled satellite is skipped everywhere - `relay.py` won't bind its
+ports, `run_passes.py`/`plan_passes.py` won't schedule or execute passes
+for it, `preflight.py` reports it as skipped rather than checking it.
+Its full entry stays in `satellites.yaml` untouched, so re-enabling it
+later needs no reconfiguration at all. See "Adding a satellite" below.
+
+**`update_tle.py`** - refreshes the TLE file from a base of Celestrak
+groups (default: `cubesat` + `amateur`), with individual satellites
+added on top by catalog number for anything not covered by those groups:
+```
+python3 update_tle.py
+python3 update_tle.py --extra-catnr 69880
+python3 update_tle.py --check-only    # report coverage/age, don't download
+```
+Validates the download before overwriting the real file, and reports
+exactly which configured satellites are missing afterward rather than
+failing silently later inside `plan_passes.py`.
 
 ## How Doppler control works
 
@@ -621,10 +698,12 @@ original failure - one giant misparsed frame, then nothing further -
 confirming the block is what fixes it rather than something else
 changing at the same time.
 
-**Every satellite's `.grc` needs this**, not just GEOSCAN-2 - all four
+**Every decode-and-relay satellite's `.grc` needs this** - all of them
 share the same `satellite_decoder` -> `network_socket_pdu` pattern, so
-all four have had this gap the whole time. Add `kiss_encode_pdu` to
-each, then `./regen_all.sh` to recompile all four at once.
+any of them can have this gap. Add `kiss_encode_pdu` to each, then
+`./regen_all.sh` to recompile all of them at once. Recording-only
+satellites don't have `network_socket_pdu` at all, so this doesn't apply
+to them.
 
 ## The relay (for your downstream KISS decoder)
 
@@ -660,42 +739,40 @@ per satellite (see `producer_port`/`consumer_port` in `satellites.yaml`):
   never drops, even across LOS - only the producer side comes and goes as
   passes start and stop.
 
-**Your downstream decoder needs one persistent connection PER SATELLITE,
-all open at the same time - not one connection you re-point between
-passes.** The relay serves all four satellites' ports simultaneously and
-continuously (it opens all eight listeners - four producer, four consumer
-- in the same event loop at startup, with no sequencing or switching
-between them at all). A single decoder connection can only ever be on one
-port, so it will only ever see one satellite's frames, no matter which
-satellite is actually overhead at the time.
+**Your downstream decoder needs one persistent connection PER SATELLITE
+that uses the relay, all open at the same time - not one connection you
+re-point between passes.** The relay serves every relay-using satellite's
+ports simultaneously and continuously (it opens all of them - one
+producer, one consumer, per satellite - in the same event loop at
+startup, with no sequencing or switching between them at all). A single
+decoder connection can only ever be on one port, so it will only ever
+see one satellite's frames, no matter which satellite is actually
+overhead at the time.
 
-Concretely, in a tabbed decoder app like `SatsDecoder-linux`: open **four
-tabs**, one per satellite, each pointed at its own fixed `consumer_port`
-(8101/8102/8103/8104), and leave all four connected indefinitely:
+Concretely, in a tabbed decoder app like `SatsDecoder-linux`: open one
+**tab per relay-using satellite**, each pointed at its own fixed
+`consumer_port` (from `satellites.yaml`), and leave them all connected
+indefinitely:
 
 ```
 Tab "geoscan-1"  ->  127.0.0.1 : 8101   (connect once, leave open forever)
 Tab "geoscan-2"  ->  127.0.0.1 : 8102   (connect once, leave open forever)
-Tab "geoscan-4"  ->  127.0.0.1 : 8103   (connect once, leave open forever)
-Tab "geoscan-5"  ->  127.0.0.1 : 8104   (connect once, leave open forever)
 ```
 
 If your decoder app can't hold multiple independent connections in one
-instance, run it as four separate OS processes instead, each with a
+instance, run it as multiple separate OS processes instead, each with a
 different Port set in its own window:
 ```
 /path/to/decoder-binary &
 /path/to/decoder-binary &
-/path/to/decoder-binary &
-/path/to/decoder-binary &
 ```
 
-Once all four are connected, nothing needs to be touched again between
-passes - whichever satellite is actually overhead automatically lights up
-its own tab/instance; the other three just sit idle until it's their turn.
-Verify all four are actually connected by checking `relay.log` for four
-separate `consumer connected` lines (one per satellite) that persist
-rather than connect-then-disconnect.
+Once every tab is connected, nothing needs to be touched again between
+passes - whichever satellite is actually overhead automatically lights
+up its own tab/instance; the others just sit idle until it's their turn.
+Verify they're actually connected by checking `relay.log` for one
+`consumer connected` line per relay-using satellite that persists rather
+than connect-then-disconnect.
 
 Start `relay.py` and `run_passes.py` in either order - the flowgraph's
 socket client retries until the relay is listening, and the relay's
@@ -707,24 +784,68 @@ directly, or just read `relay.py`'s own startup output:
 ```
 [GEOSCAN-1] producer :9101  consumer :8101
 [GEOSCAN-2] producer :9102  consumer :8102
-[GEOSCAN-4] producer :9103  consumer :8103
-[GEOSCAN-5] producer :9104  consumer :8104
 ```
-Any port number works as long as it's free and both ends (this config, and
-your decoder's connection settings) agree on it - 8101-8104 is just a
+(only satellites configured to use the relay show up here - recording-
+only satellites are silently skipped, with a line saying so). Any port
+number works as long as it's free and both ends (this config, and your
+decoder's connection settings) agree on it - 8101/8102/... is just a
 convenient, memorable scheme, not a requirement.
 
-## Satellite data used (verify before a real pass - frequencies drift)
+## Adding a satellite
 
-| Satellite | NORAD | Downlink (Hz) | producer_port | consumer_port |
-|---|---|---|---|---|
-| GEOSCAN-1 | 64880 | 435970000 | 9101 | 8101 |
-| GEOSCAN-2 | 64890 | 436160000 | 9102 | 8102 |
-| GEOSCAN-4 | 64892 | 435335000 | 9103 | 8103 |
-| GEOSCAN-5 | 64891 | 436660000 | 9104 | 8104 |
+**Decode-and-relay** (has a `gr-satellites` decoder definition, feeds a
+downstream decoder GUI over KISS):
+```
+python3 add_satellite.py --name GEOSCAN-3 --norad 64893 --freq 435742000
+```
 
-Pull current values from db.satnogs.org before a real pass - all four had
-several kHz of reported drift at last check.
+**Recording-only** (no decoder yet, or intentionally none - just raw IQ
+to disk for later analysis):
+```
+python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 \
+    --template flowgraphs/geoscan1.grc --record-only
+```
+`--record-only` strips the decoder/KISS-file-sink/telemetry-submit/relay
+wiring from the template, sets `recordOnStart: True` so it records
+unattended, removes the Qt waterfall (real, measured CPU cost for a
+window nobody's watching during an automated pass), and adds the config
+entry with no `producer_port`/`consumer_port` at all - that absence is
+what tells `relay.py` and `preflight.py` this satellite has no relay
+involvement.
+
+Either way, finish with:
+```
+grcc flowgraphs/<name>.grc      # or ./regen_all.sh for everything at once
+python3 update_tle.py --extra-catnr <norad>   # only if the base groups don't cover it
+python3 preflight.py
+```
+
+**Pausing a satellite** without deleting its hard-won config - sharing
+one SDR across satellites you don't all want active at once is the
+normal case, not an edge case:
+```
+python3 toggle_satellite.py --list
+python3 toggle_satellite.py --disable GEOSCAN-1
+python3 toggle_satellite.py --enable GEOSCAN-1
+```
+A disabled satellite is invisible to `relay.py`, `run_passes.py`,
+`plan_passes.py`, and `preflight.py`'s live checks - as if it weren't in
+`satellites.yaml` at all - while its full config sits untouched, ready
+to re-enable with no reconfiguration. Re-run `plan_passes.py` after
+toggling anything, since it fully regenerates `schedule.yaml` from
+whatever's currently enabled - a disabled satellite's old approved
+passes simply won't be in the new file, nothing to prune by hand.
+
+## Satellite data
+
+Frequencies, ports, and every other per-satellite setting live in
+`satellites.yaml` - that file is the single source of truth, not this
+README. Pull current downlink frequencies from db.satnogs.org before a
+real pass regardless of what's already configured; drift of several kHz
+between checks isn't unusual.
+
+For a satellite with no decoder yet, no `producer_port`/`consumer_port`
+is needed at all - see "Adding a satellite" below.
 
 ## Verifying Doppler and rotor control are working
 
@@ -781,12 +902,13 @@ that's your answer. Start it: `nohup python3 relay.py > relay.log 2>&1 &`
 nothing shows up in your downstream decoder**
 Almost certainly: only one satellite's consumer port has a decoder
 connected to it, and a different satellite's pass just happened. The
-relay serves all four consumer ports (8101-8104) simultaneously and
-continuously - it never switches which port is "active." Your decoder
-needs **four separate persistent connections, one per satellite, all
+relay serves every relay-using satellite's consumer port simultaneously
+and continuously - it never switches which port is "active." Your
+decoder needs **one persistent connection per relay-using satellite, all
 open at once** - not one connection you re-point before each pass. See
 "The relay" above for the exact setup. Verify with `tail -f relay.log`:
-you should see four separate `consumer connected` lines that persist,
+you should see one `consumer connected` line per relay-using satellite
+that persists,
 not one connection that comes and goes.
 
 **Frames arrive but your decoder can't parse them / shows garbage**
@@ -810,7 +932,7 @@ problem - see "Why every `.grc` needs a `kiss_encode_pdu` block" above
 for the full explanation. Confirm by checking whether that satellite's
 `.grc` has `kiss_encode_pdu` between the decoder and `network_socket_pdu`;
 if it's wired directly, that's the cause. Fix: add the block, `grcc` (or
-`./regen_all.sh` for all four), and re-verify with the KISS File
+`./regen_all.sh` for everything), and re-verify with the KISS File
 Source -> `kiss_encode_pdu` -> Socket PDU test rig described in that
 section before trusting the next live pass.
 
@@ -908,14 +1030,15 @@ config-only checks can't see.
 - **`SatsDecoder` version**: use the `nightly` tag or later (commit
   `d94ff8e`+). Anything at or before release `0.3.6` has the mid-pass
   false-disconnect bug described in Troubleshooting.
-- **`kiss_encode_pdu` is required on all four `.grc` files**:
-  `satellites_satellite_decoder`'s PDU output is unframed;
+- **`kiss_encode_pdu` is required on every decode-and-relay satellite's
+  `.grc`**: `satellites_satellite_decoder`'s PDU output is unframed;
   `network_socket_pdu` has no KISS awareness of its own. Without
   `kiss_encode_pdu` between them, frames reach SatsDecoder unframed and
   get silently dropped or misparsed. See "Why every `.grc` needs a
   `kiss_encode_pdu` block" above. Check this first on any newly-added
-  satellite's `.grc`, since it's easy to copy the decoder wiring but
-  forget this one extra hop.
+  decode-and-relay satellite's `.grc`, since it's easy to copy the
+  decoder wiring but forget this one extra hop. Doesn't apply to
+  recording-only satellites - they have no `network_socket_pdu` at all.
 
 ## Authors
 

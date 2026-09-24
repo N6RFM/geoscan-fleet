@@ -34,6 +34,15 @@ avoids the kind of manual-edit drift (frequency mismatches, the
 ```
 python3 add_satellite.py --name GEOSCAN-N --norad <norad> --freq <hz>
 ```
+For a satellite with no decoder yet, add `--record-only` - it strips the
+decoder/KISS/telemetry/relay wiring and adds the config entry with no
+relay ports at all, rather than a decode-and-relay flowgraph you'd need
+to manually gut afterward.
+
+**Pausing a satellite**: `toggle_satellite.py --disable NAME` /
+`--enable NAME` rather than commenting out or deleting its
+`satellites.yaml` entry - keeps the config intact and re-enabling later
+needs no reconfiguration.
 
 **Fixing a bug**: if it's something `preflight.py`/`doctor.py`/`ci_check.py`
 *could* have caught but didn't, consider adding a check for it rather than
