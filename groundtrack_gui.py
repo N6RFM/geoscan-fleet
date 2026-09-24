@@ -238,7 +238,20 @@ class GroundtrackGUI(tk.Tk):
 
     def run_cmd(self, args):
         """Run an existing script exactly as you'd type it - never
-        touches its source, just captures what it prints."""
+        touches its source, just captures what it prints.
+
+        Inserts -u (unbuffered) right after the interpreter when the
+        command is a python invocation. Without it, a script's stdout
+        switches from line-buffered to fully block-buffered the moment
+        it's a pipe rather than a real terminal (exactly what
+        capture_output=True creates) - if that script itself launches a
+        nested subprocess (like doctor.py calling preflight.py), the
+        outer script's own buffered output can sit unflushed while the
+        inner one runs, producing scrambled ordering or, in doctor.py's
+        case, output that never completes at all. -u forces immediate
+        flushing regardless of whether stdout is a terminal or a pipe."""
+        if args and args[0] == sys.executable and "-u" not in args:
+            args = [args[0], "-u"] + args[1:]
         self.log(f"$ {' '.join(args)}\n\n(running...)\n")
         self.update_idletasks()
         try:
