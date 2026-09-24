@@ -48,20 +48,47 @@ def load_tles(path, wanted_norads):
 
 
 def find_passes(sat, observer, t0, t1, min_elev_deg):
-    """Yields (aos, los, max_elev_deg) for every pass of `sat` above
-    min_elev_deg between t0 and t1."""
+    """Yields (aos, los, max_elev_deg, horizon_aos, horizon_los) for every
+    pass of `sat` above min_elev_deg between t0 and t1.
+
+    horizon_aos/horizon_los are the same pass's TRUE 0-degree horizon
+    rise/set times -- purely informational, for comparing against tools
+    like GPredict whose pass tables report the horizon crossing rather
+    than a configured minimum-elevation threshold. They are NOT used for
+    scheduling: what actually gets recorded is still gated by aos/los at
+    min_elev_deg, exactly as before.
+    """
     times, events = sat.find_events(observer, t0, t1, altitude_degrees=min_elev_deg)
+
+    # Same satellite, same window, at the true horizon -- used only to look
+    # up which horizon-to-horizon arc each min_elev_deg pass falls inside.
+    h_times, h_events = sat.find_events(observer, t0, t1, altitude_degrees=0.0)
+    horizon_windows = []
+    h_aos = None
+    for t, ev in zip(h_times, h_events):
+        if ev == 0:                      # rise (0 deg)
+            h_aos = t
+        elif ev == 2 and h_aos is not None:  # set (0 deg)
+            horizon_windows.append((h_aos, t))
+            h_aos = None
+
+    def enclosing_horizon(aos, los):
+        for h_aos, h_los in horizon_windows:
+            if h_aos.tt <= aos.tt and los.tt <= h_los.tt:
+                return h_aos, h_los
+        return None, None  # shouldn't happen, but don't crash display if it does
+
     aos = None
     max_el = None
-    culm_t = None
     for t, ev in zip(times, events):
         if ev == 0:          # rise
-            aos, max_el, culm_t = t, None, None
+            aos, max_el = t, None
         elif ev == 1:        # culminate
             el, _, _ = (sat - observer).at(t).altaz()
-            max_el, culm_t = el.degrees, t
+            max_el = el.degrees
         elif ev == 2 and aos is not None:  # set
-            yield aos, t, max_el if max_el is not None else 0.0
+            h_aos, h_los = enclosing_horizon(aos, t)
+            yield aos, t, max_el if max_el is not None else 0.0, h_aos, h_los
             aos = None
 
 
@@ -156,7 +183,7 @@ def main():
         sat = tles.get(norad)
         if sat is None:
             continue
-        for aos, los, max_el in find_passes(sat, observer, t0, t1, sat_cfg["min_elev_deg"]):
+        for aos, los, max_el, h_aos, h_los in find_passes(sat, observer, t0, t1, sat_cfg["min_elev_deg"]):
             all_passes.append({
                 "name": sat_cfg["name"],
                 "norad": int(norad),
@@ -164,15 +191,26 @@ def main():
                 "los": los.utc_iso(),
                 "max_elevation_deg": float(round(max_el, 1)),
                 "approved": True,
+                # informational only (leading underscore) -- the true 0-degree
+                # horizon crossing for this same pass, for comparing against
+                # tools like GPredict that report horizon times rather than
+                # a configured threshold. Stripped out before schedule.yaml
+                # is written; does not affect what gets recorded.
+                "_horizon_aos": h_aos.utc_iso() if h_aos is not None else None,
+                "_horizon_los": h_los.utc_iso() if h_los is not None else None,
             })
 
     all_passes.sort(key=lambda p: p["aos"])
 
     print(f"\n{len(all_passes)} pass(es) in the next {args.hours:.0f}h "
           f"above each satellite's min_elev_deg:\n")
+    print(f"       {'AOS (threshold)':<22}{'LOS (threshold)':<22}{'':<14}"
+          f"{'max el':<10}{'AOS (0deg)':<22}{'LOS (0deg)':<22}")
     for i, p in enumerate(all_passes):
-        print(f"  [{i:2d}] {p['aos']}  ->  {p['los']}   "
-              f"{p['name']:<12} max el {p['max_elevation_deg']:5.1f} deg")
+        h_aos = p["_horizon_aos"] or "?"
+        h_los = p["_horizon_los"] or "?"
+        print(f"  [{i:2d}] {p['aos']:<22}{p['los']:<22}{p['name']:<14}"
+              f"{p['max_elevation_deg']:>5.1f} deg  {h_aos:<22}{h_los:<22}")
 
     if args.interactive:
         for p in all_passes:
@@ -182,8 +220,14 @@ def main():
 
     resolve_overlaps(all_passes, args.interactive)
 
+    # strip the informational (leading-underscore) horizon fields before
+    # writing schedule.yaml -- run_passes.py only ever needs aos/los at the
+    # configured threshold; the 0-degree times were for the printout above.
+    passes_to_write = [{k: v for k, v in p.items() if not k.startswith("_")}
+                        for p in all_passes]
+
     with open(SCHEDULE_PATH, "w") as f:
-        yaml.dump({"passes": all_passes}, f, sort_keys=False, default_flow_style=False)
+        yaml.dump({"passes": passes_to_write}, f, sort_keys=False, default_flow_style=False)
 
     n_approved = sum(p["approved"] for p in all_passes)
     print(f"\nWrote {SCHEDULE_PATH}: {n_approved}/{len(all_passes)} approved.")
