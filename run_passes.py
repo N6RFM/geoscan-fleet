@@ -217,7 +217,7 @@ def main():
     schedule = load_yaml(SCHEDULE_PATH)
     gs = cfg["ground_station"]
     observer = wgs84.latlon(gs["lat"], gs["lon"], gs["alt_m"])
-    sat_cfgs = {c["norad"]: c for c in cfg["satellites"]}
+    sat_cfgs = {c["norad"]: c for c in cfg["satellites"] if c.get("enabled", True)}
     for norad, sc in sat_cfgs.items():
         try:
             sc["freq_hz"] = float(sc["freq_hz"])
@@ -226,7 +226,8 @@ def main():
                       f"isn't a valid number - check for stray quotes around it.")
     tles = load_tles(cfg["tle_file"], set(sat_cfgs))
 
-    passes = [p for p in schedule["passes"] if p.get("approved")]
+    passes = [p for p in schedule["passes"]
+              if p.get("approved") and p["norad"] in sat_cfgs]
     for p in passes:
         p["aos_dt"] = parse_iso(p["aos"])
         p["los_dt"] = parse_iso(p["los"])

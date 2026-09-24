@@ -49,7 +49,7 @@ def next_free_ports(cfg):
     return prod, cons
 
 
-def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port):
+def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port, record_only=False):
     with open(template_path) as f:
         data = yaml.safe_load(f)
     blocks = data["blocks"]
@@ -57,22 +57,25 @@ def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port):
     find_block(blocks, "freq")["parameters"]["value"] = str(freq_hz)
     find_block(blocks, "nfreq")["parameters"]["value"] = str(freq_hz)
 
-    dec = find_block(blocks, "satellites_satellite_decoder_0")
-    dec["parameters"]["norad"] = str(norad)
-    dec["parameters"]["file"] = ""  # blank - relies on norad auto-lookup until you set a real path
+    if not record_only:
+        dec = find_block(blocks, "satellites_satellite_decoder_0")
+        dec["parameters"]["norad"] = str(norad)
+        dec["parameters"]["file"] = ""  # blank - relies on norad auto-lookup until you set a real path
 
-    sub = find_block(blocks, "satellites_telemetry_submit_0")
-    sub["parameters"]["norad"] = str(norad)
+        sub = find_block(blocks, "satellites_telemetry_submit_0")
+        sub["parameters"]["norad"] = str(norad)
+
+        kiss = find_block(blocks, "satellites_kiss_file_sink_0")
+        kiss["parameters"]["file"] = f"/home/YOUR_USERNAME/Desktop/{name}.kss"
+
+        sock = find_block(blocks, "network_socket_pdu_0")
+        sock["parameters"]["port"] = str(producer_port)
+        sock["parameters"]["type"] = "TCP_CLIENT"  # explicit, in case the template ever regresses
 
     sink = find_block(blocks, "filerepeater_AdvFileSink_0")
     sink["parameters"]["basefile"] = slugify(name)
-
-    kiss = find_block(blocks, "satellites_kiss_file_sink_0")
-    kiss["parameters"]["file"] = f"/home/YOUR_USERNAME/Desktop/{name}.kss"
-
-    sock = find_block(blocks, "network_socket_pdu_0")
-    sock["parameters"]["port"] = str(producer_port)
-    sock["parameters"]["type"] = "TCP_CLIENT"  # explicit, in case the template ever regresses
+    if record_only:
+        sink["parameters"]["recordOnStart"] = "True"
 
     wf = None
     for b in blocks:
@@ -80,7 +83,17 @@ def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port):
             wf = b
             break
     if wf:
-        wf["parameters"]["name"] = name
+        if record_only:
+            # no downstream tab watches this during automated recording -
+            # same reasoning as the fix applied to every GEOSCAN flowgraph:
+            # a live FFT+render loop is real, measured CPU cost for a
+            # window nobody's looking at unattended
+            blocks[:] = [b for b in blocks if b["name"] != wf["name"]]
+            wf_name = wf["name"]
+            data["connections"] = [c for c in data.get("connections", [])
+                                    if wf_name not in c]
+        else:
+            wf["parameters"]["name"] = name
 
     slug = slugify(name)
     data["options"]["parameters"]["id"] = slug
@@ -98,6 +111,12 @@ def main():
     ap.add_argument("--min-elev", type=float, default=15.0)
     ap.add_argument("--template", default="flowgraphs/geoscan1.grc",
                      help="existing .grc to base the new one on (default: geoscan1.grc)")
+    ap.add_argument("--record-only", action="store_true",
+                     help="no decoder/KISS/telemetry/relay blocks - just RF front end to "
+                          "Advanced File Sink for raw IQ recording, no downstream decoder needed")
+    ap.add_argument("--disabled", action="store_true",
+                     help="add with enabled: false, so it's configured but not yet scheduled "
+                          "(toggle on later with toggle_satellite.py --enable)")
     args = ap.parse_args()
 
     if not os.path.exists(args.template):
@@ -114,30 +133,46 @@ def main():
     if os.path.exists(grc_path):
         raise SystemExit(f"{grc_path} already exists - refusing to overwrite")
 
-    producer_port, consumer_port = next_free_ports(cfg)
+    producer_port, consumer_port = (None, None) if args.record_only else next_free_ports(cfg)
 
-    generate_grc(args.template, grc_path, args.name, args.norad, args.freq, producer_port)
+    generate_grc(args.template, grc_path, args.name, args.norad, args.freq, producer_port,
+                 record_only=args.record_only)
 
-    cfg.setdefault("satellites", []).append({
+    new_entry = {
         "name": args.name,
         "norad": args.norad,
         "freq_hz": args.freq,
         "script": f"flowgraphs/{slug}.py",
         "min_elev_deg": args.min_elev,
-        "producer_port": producer_port,
-        "consumer_port": consumer_port,
-    })
+    }
+    if not args.record_only:
+        new_entry["producer_port"] = producer_port
+        new_entry["consumer_port"] = consumer_port
+    if args.disabled:
+        new_entry["enabled"] = False
+    cfg.setdefault("satellites", []).append(new_entry)
     with open(CONFIG_PATH, "w") as f:
         yaml.dump(cfg, f, sort_keys=False, default_flow_style=False)
 
     print(f"Generated {grc_path} from {args.template}")
-    print(f"Added {args.name} to {CONFIG_PATH}: "
-          f"producer_port={producer_port}, consumer_port={consumer_port}")
+    if args.record_only:
+        print(f"Added {args.name} to {CONFIG_PATH} as recording-only "
+              f"(no producer_port/consumer_port - no relay involvement)")
+    else:
+        print(f"Added {args.name} to {CONFIG_PATH}: "
+              f"producer_port={producer_port}, consumer_port={consumer_port}")
+    if args.disabled:
+        print(f"Added as disabled - enable later with: "
+              f"python3 toggle_satellite.py --enable {args.name}")
     print(f"\nStill needed:")
-    print(f"  1. Point {grc_path}'s decoder file at a real GEOSCAN-*.yml "
-          f"(currently blank - relying on norad auto-lookup)")
-    print(f"  2. grcc {grc_path}")
-    print(f"  3. python3 preflight.py")
+    if not args.record_only:
+        print(f"  1. Point {grc_path}'s decoder file at a real GEOSCAN-*.yml "
+              f"(currently blank - relying on norad auto-lookup)")
+        print(f"  2. grcc {grc_path}")
+        print(f"  3. python3 preflight.py")
+    else:
+        print(f"  1. grcc {grc_path}")
+        print(f"  2. python3 preflight.py")
 
 
 if __name__ == "__main__":

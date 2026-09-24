@@ -141,7 +141,7 @@ def main():
     ts = load.timescale()
     gs = cfg["ground_station"]
     observer = wgs84.latlon(gs["lat"], gs["lon"], gs["alt_m"])
-    sat_cfgs = {c["norad"]: c for c in cfg["satellites"]}
+    sat_cfgs = {c["norad"]: c for c in cfg["satellites"] if c.get("enabled", True)}
     tles = load_tles(cfg["tle_file"], set(sat_cfgs))
 
     missing = set(sat_cfgs) - set(tles)

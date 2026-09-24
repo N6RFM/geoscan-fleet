@@ -122,6 +122,13 @@ async def main():
 
     servers = []
     for sat_cfg in cfg["satellites"]:
+        if not sat_cfg.get("enabled", True):
+            print(f"[{sat_cfg['name']}] disabled - skipping", flush=True)
+            continue
+        if "producer_port" not in sat_cfg and "consumer_port" not in sat_cfg:
+            print(f"[{sat_cfg['name']}] no producer_port/consumer_port configured - "
+                  f"skipping (recording-only satellite, no relay involvement)", flush=True)
+            continue
         relay = SatRelay(sat_cfg["name"])
         prod_srv = await asyncio.start_server(
             relay.handle_producer, "127.0.0.1", sat_cfg["producer_port"])
@@ -130,6 +137,12 @@ async def main():
         servers += [prod_srv, cons_srv]
         print(f"[{sat_cfg['name']}] producer :{sat_cfg['producer_port']}  "
               f"consumer :{sat_cfg['consumer_port']}  (TCP keepalive on)", flush=True)
+
+    if not servers:
+        print("No satellites configured for relay - nothing to do. "
+              "(All satellites are recording-only, or satellites.yaml is empty.)",
+              flush=True)
+        return
 
     async with servers[0]:
         await asyncio.gather(*(s.serve_forever() for s in servers))

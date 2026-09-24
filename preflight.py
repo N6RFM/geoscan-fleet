@@ -107,11 +107,20 @@ def static_checks(cfg_path):
 
     for sat in sats:
         name = sat.get("name", "<unnamed>")
+        if not sat.get("enabled", True):
+            print(f"--- {name} (disabled - skipping) ---")
+            continue
         print(f"--- {name} ---")
 
-        for field in ("norad", "freq_hz", "script", "min_elev_deg",
-                      "producer_port", "consumer_port"):
+        for field in ("norad", "freq_hz", "script", "min_elev_deg"):
             check(f"{name}.{field} present", field in sat)
+
+        uses_relay = "producer_port" in sat or "consumer_port" in sat
+        if uses_relay:
+            for field in ("producer_port", "consumer_port"):
+                check(f"{name}.{field} present", field in sat)
+        else:
+            check(f"{name}: recording-only, no relay configured", True)
 
         freq_ok = isinstance(sat.get("freq_hz"), (int, float))
         check(f"{name}.freq_hz is numeric", freq_ok, f"got {sat.get('freq_hz')!r}")
@@ -161,27 +170,35 @@ def check_grc(name, grc_path, sat):
         if var in blocks:
             grc_val = blocks[var]["parameters"].get("value")
             try:
-                match = int(grc_val) == int(sat["freq_hz"])
+                match = int(float(grc_val)) == int(float(sat["freq_hz"]))
             except (TypeError, ValueError):
                 match = False
             check(f"{name}: {var} in .grc matches satellites.yaml freq_hz",
                   match, f".grc={grc_val}  yaml={sat.get('freq_hz')}")
 
     sock_block = blocks.get("network_socket_pdu_0")
-    if sock_block:
-        sock_type = sock_block["parameters"].get("type", "")
-        check(f"{name}: network_socket_pdu type is TCP_CLIENT",
-              "TCP_CLIENT" in str(sock_type), f"got {sock_type!r}")
-        sock_port = sock_block["parameters"].get("port")
-        try:
-            port_match = int(sock_port) == int(sat["producer_port"])
-        except (TypeError, ValueError):
-            port_match = False
-        check(f"{name}: network_socket_pdu port matches producer_port",
-              port_match, f".grc={sock_port}  yaml={sat.get('producer_port')}")
-    else:
-        check(f"{name}: has a network_socket_pdu block", False,
-              "relay connection missing entirely")
+    uses_relay = "producer_port" in sat or "consumer_port" in sat
+    if uses_relay:
+        if sock_block:
+            sock_type = sock_block["parameters"].get("type", "")
+            check(f"{name}: network_socket_pdu type is TCP_CLIENT",
+                  "TCP_CLIENT" in str(sock_type), f"got {sock_type!r}")
+            sock_port = sock_block["parameters"].get("port")
+            try:
+                port_match = int(sock_port) == int(sat["producer_port"])
+            except (TypeError, ValueError):
+                port_match = False
+            check(f"{name}: network_socket_pdu port matches producer_port",
+                  port_match, f".grc={sock_port}  yaml={sat.get('producer_port')}")
+        else:
+            check(f"{name}: has a network_socket_pdu block", False,
+                  "relay connection missing entirely")
+    elif sock_block:
+        check(f"{name}: network_socket_pdu present but no producer_port/consumer_port "
+              f"configured", False,
+              "recording-only satellite has a live relay connection in its .grc - "
+              "either add producer_port/consumer_port to satellites.yaml, or remove "
+              "the network_socket_pdu block if this is intentionally recording-only")
 
     dec_block = blocks.get("satellites_satellite_decoder_0")
     if dec_block:
@@ -203,7 +220,34 @@ def live_check(cfg, only=None, duration=8):
         if only and sat["name"] != only:
             continue
         name = sat["name"]
+        if not sat.get("enabled", True):
+            print(f"--- {name} (disabled - skipping) ---")
+            continue
         print(f"--- {name} live test ---")
+
+        uses_relay = "producer_port" in sat or "consumer_port" in sat
+
+        if not uses_relay:
+            # recording-only satellite - nothing to bind or connect to, just
+            # confirm the flowgraph itself starts and doesn't crash
+            proc = subprocess.Popen([sys.executable, "-u", sat["script"]],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True)
+            time.sleep(min(duration, 8))
+            alive = proc.poll() is None
+            if not alive:
+                out = proc.stdout.read() if proc.stdout else ""
+                check(f"{name}: flowgraph did not crash", False,
+                      out.strip().splitlines()[-1] if out.strip() else "exited early")
+            else:
+                check(f"{name}: flowgraph did not crash", True)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            time.sleep(2)
+            continue
 
         # stand in for relay.py's producer-side listener, unless relay.py
         # is already running and already owns this port - in that case,

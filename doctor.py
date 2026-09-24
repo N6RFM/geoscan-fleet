@@ -210,9 +210,13 @@ def quick_status():
         rot_status = port_status(cfg["rot_port"])
         print(f"rotctld:  {rot_status} (port {cfg['rot_port']})")
     if cfg.get("satellites"):
-        relay_port = cfg["satellites"][0]["consumer_port"]
-        relay_status = port_status(relay_port)
-        print(f"relay.py: {relay_status}")
+        relay_sat = next((s for s in cfg["satellites"]
+                           if s.get("enabled", True) and "consumer_port" in s), None)
+        if relay_sat:
+            relay_status = port_status(relay_sat["consumer_port"])
+            print(f"relay.py: {relay_status}")
+        else:
+            print(f"relay.py: n/a (no enabled satellite uses the relay)")
 
     # next approved pass
     if os.path.exists("schedule.yaml"):
