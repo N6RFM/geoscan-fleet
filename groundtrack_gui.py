@@ -201,7 +201,9 @@ class GroundtrackGUI(tk.Tk):
         header = ttk.Frame(self.content)
         header.pack(fill="x", padx=8)
         ttk.Label(header, text="Output from the last command run:").pack(side="left")
-        ttk.Button(header, text="Copy", command=self.copy_output).pack(side="right")
+        ttk.Button(header, text="Clear", command=self.clear_output).pack(side="right")
+        ttk.Button(header, text="Copy", command=self.copy_output).pack(
+            side="right", padx=8)
         ttk.Button(header, text="Save to file...",
                    command=self.save_output).pack(side="right", padx=4)
 
@@ -216,6 +218,9 @@ class GroundtrackGUI(tk.Tk):
                                yscrollcommand=scrollbar.set)
         self.output.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.output.yview)
+
+    def clear_output(self):
+        self.output.delete("1.0", tk.END)
 
     def copy_output(self):
         text = self.output.get("1.0", tk.END)
