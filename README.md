@@ -69,42 +69,60 @@ For recording-only satellites, it just tunes, corrects for Doppler, and
 writes raw IQ to disk - no decoder, no KISS output, no network
 connection at all.
 
-**SatsDecoder** is the downstream decoder GUI at the end of that network
-connection, for satellites that have one - an existing, general-purpose
-open-source project
-([baskiton/SatsDecoder](https://github.com/baskiton/SatsDecoder)), not
-something written for this project. It isn't specific to any one
-satellite family: it decodes frames for a wide range of amateur/
-university cubesats via YAML satellite definitions, and gives a
-persistent per-satellite tab with a live history of decoded frames over
-a KISS TCP link. It was chosen because it already covers exactly this
-need - reading real-time KISS frames off a socket, per satellite -
-rather than building a bespoke decoder GUI from scratch. Earlier issues
-found in it during this project's development (a false-disconnect bug,
-and a KISS-timestamp `OverflowError`) have both since been fixed in
-upstream's `nightly` branch - confirmed directly against commit
-`2112e3f` ("#7 catch overflow error when parsing KISS-timestamp"),
-sitting on top of the `d94ff8e` refactor that introduced it. Run from
-`nightly`, not `main`; it's unclear as of this writing when or whether
-these land in `main`.
+**A downstream decoder** sits at the end of that network connection, for
+satellites configured to use one. For GEOSCAN, that's
+[SatsDecoder](https://github.com/baskiton/SatsDecoder) - an existing,
+general-purpose open-source project, not something written for this
+project, and not a fixed part of this toolkit's architecture. It decodes
+frames for a wide range of amateur/university cubesats via YAML
+satellite definitions, and gives a persistent per-satellite tab with a
+live history of decoded frames over a KISS TCP link. It's what GEOSCAN's
+flowgraphs happen to feed today - not a requirement `relay.py` or
+anything else in this toolkit imposes. Earlier issues found in it during
+this project's development (a false-disconnect bug, and a KISS-timestamp
+`OverflowError`) have both since been fixed in upstream's `nightly`
+branch - confirmed directly against commit `2112e3f` ("#7 catch
+overflow error when parsing KISS-timestamp"), sitting on top of the
+`d94ff8e` refactor that introduced it. Run from `nightly`, not `main`;
+it's unclear as of this writing when or whether these land in `main`.
 
-**`relay.py`** sits between the flowgraph and SatsDecoder, for
-satellites that use both, because they have very different lifecycles.
-The flowgraph is short-lived - `run_passes.py` launches it fresh at
-every AOS and it exits at LOS, every pass, every satellite,
-independently. SatsDecoder, by contrast, is meant to be left open with
-each satellite's tab connected once and left alone; it doesn't expect
-the far end of that connection to disappear and reappear every few
-minutes. Without something in between, either SatsDecoder would need to
-detect and reconnect around every single pass boundary itself, or the
-flowgraph would need to somehow wait for a decoder GUI to be listening
-before it could start. `relay.py` decouples the two entirely: it's a
-single long-running process per satellite, started once at the
-beginning of a session, that the short-lived flowgraph connects *out* to
-as a client at every AOS, and that SatsDecoder connects *in* to once and
-leaves alone. Either side can restart independently - a flowgraph
-crashing mid-pass, or a SatsDecoder tab getting disconnected - without
-the other one needing to know or care. Its TCP keepalive and
+**A different satellite can feed a completely different downstream
+consumer, on either side of `relay.py`, using an entirely different
+protocol - `relay.py` doesn't know or care.** It has no KISS awareness
+at all: it's a pure byte-forwarding TCP proxy, nothing more. Whatever
+arrives on a satellite's producer port gets forwarded verbatim to its
+consumer port, with no parsing, no framing logic, and no protocol
+knowledge of any kind - proven directly by the byte-for-byte fidelity
+test earlier in this project's development, which showed `relay.py`
+forwards exactly what it receives regardless of whether those bytes are
+correctly KISS-framed, unframed, or something else entirely. That's
+precisely why the `kiss_encode_pdu` bug (below) was possible in the
+first place: `relay.py` was never responsible for that framing, and
+nothing about it would have complained either way. A satellite's `.grc`
+could just as easily feed `relay.py` a custom telemetry protocol, raw
+samples, or anything else TCP can carry, to a downstream consumer that
+has nothing to do with KISS or SatsDecoder at all - the only real
+requirement is that whatever sits on both ends of a given port pair
+agrees with each other, the same way a network cable doesn't need to
+understand the packets running through it.
+
+**`relay.py`** sits between the flowgraph and its downstream consumer,
+for satellites that use both, because they have very different
+lifecycles. The flowgraph is short-lived - `run_passes.py` launches it
+fresh at every AOS and it exits at LOS, every pass, every satellite,
+independently. A decoder GUI like SatsDecoder, by contrast, is meant to
+be left open with each satellite's tab connected once and left alone; it
+doesn't expect the far end of that connection to disappear and reappear
+every few minutes. Without something in between, either the downstream
+side would need to detect and reconnect around every single pass
+boundary itself, or the flowgraph would need to somehow wait for it to
+be listening before it could start. `relay.py` decouples the two
+entirely: it's a single long-running process per satellite, started once
+at the beginning of a session, that the short-lived flowgraph connects
+*out* to as a client at every AOS, and that the downstream side connects
+*in* to once and leaves alone. Either side can restart independently - a
+flowgraph crashing mid-pass, or a decoder tab getting disconnected -
+without the other one needing to know or care. Its TCP keepalive and
 per-consumer diagnostic logging (see "The relay" section below) exist
 specifically to make that long-lived middle process itself trustworthy,
 since if it ever silently died or lost track of a connection, both
@@ -119,6 +137,23 @@ just records raw IQ for you to analyze or decode later, whenever a
 decoder for it exists. This is a first-class, fully supported mode, not
 a workaround - see "Adding a satellite" below.
 
+**Using the relay is a real choice with a real tradeoff, not just "on
+for satellites with a decoder, off for satellites without one."**
+Skipping it entirely is simplest when there's genuinely nothing waiting
+on the other end yet - one less process to run, one less thing that can
+go wrong. But the moment something *is* meant to consume frames live,
+during the pass rather than after it, going through `relay.py` buys you
+real robustness that a flowgraph connecting straight to a decoder
+doesn't have: the decoder can hold one stable connection across many
+AOS/LOS cycles instead of reconnecting every pass, either side can
+restart independently without the other needing to notice, and TCP
+keepalive plus diagnostic logging catch a dead link rather than leaving
+a silent zombie connection. Bypass the relay for a satellite that does
+have a live downstream consumer, and you take on all of that yourself -
+the decoder now needs to detect and reconnect around every pass boundary
+on its own, and a flowgraph that dies mid-pass just leaves the decoder
+hanging with no signal anything went wrong.
+
 ## Folder layout
 
 ```
@@ -128,7 +163,7 @@ groundtrack/
 ├── setup_station.py       # wizard: sets lat/lon/alt, TLE source, rig port
 ├── plan_passes.py         # predicts passes, lets you approve/reject them
 ├── run_passes.py          # executor: launches flowgraphs at AOS, feeds Doppler+rotor
-├── relay.py                # persistent KISS relay for satellites that use one
+├── relay.py                # persistent TCP relay, for satellites configured to use one
 ├── show_queue.py            # prints the approved pass queue from schedule.yaml
 ├── doctor.py                # one command: environment + config sanity check
 ├── preflight.py             # config checks + optional --live flowgraph launch
