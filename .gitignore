@@ -6,7 +6,7 @@ satellites.yaml
 schedule.yaml
 
 # Fetched TLE data - refresh it yourself, don't commit stale orbital elements
-tle/*.txt
+tle/*
 !tle/.gitkeep
 
 # Compiled from .grc by grcc/GNU Radio Companion - regenerate locally,
