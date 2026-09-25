@@ -334,16 +334,32 @@ python3 doctor.py
 It checks, in order: which folder you're actually running from (and flags
 if it's inside Trash - a real issue we hit once), whether duplicate copies
 of this fleet folder exist elsewhere on disk, which fleet-related
-processes are currently running and from where, and which of the fleet's
-ports are free vs. already occupied (and by what). It then runs
+processes are currently running and from where, which of the fleet's
+ports are free vs. already occupied (and by what), and whether any
+compiled flowgraph files have landed at the repo root instead of
+`flowgraphs/` - `grcc` always writes its output to the current directory,
+ignoring the `.grc`'s own folder, for both the main flowgraph and a
+separate companion file per embedded Python block. It then runs
 `preflight.py`'s full config checks automatically - so `doctor.py` is a
 strict superset of `preflight.py`; you can run either, but `doctor.py`
 catches a wider class of problems (like an orphaned process from a
 since-deleted folder silently holding a port, which `preflight.py` alone
 has no way to see).
 
-Anything after `doctor.py` on the command line is passed straight through
-to `preflight.py`, so `python3 doctor.py --live` works too.
+```
+python3 doctor.py --fix
+```
+Actually removes/moves the stray compiled files it finds - deleting
+disposable embedded-block companions, and either deleting a stray main
+flowgraph `.py` (if the correct copy already exists in `flowgraphs/`) or
+moving it into place (if it doesn't). Safe regardless: nothing else in
+this toolkit ever reads these files from the repo root, so cleaning them
+up can't break anything that was working. `--fix` is stripped out before
+anything else is passed through to `preflight.py`, so it won't cause an
+"unrecognized arguments" error there.
+
+Anything else after `doctor.py` on the command line is passed straight
+through to `preflight.py`, so `python3 doctor.py --live` works too.
 
 For a quick glance instead of the full report - TLE age, whether
 rigctld/rotctld/relay.py are up, and time until the next approved pass:
