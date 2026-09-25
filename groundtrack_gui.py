@@ -737,6 +737,7 @@ class GroundtrackGUI(tk.Tk):
         extra_btns.pack(side="left", padx=(6, 0), fill="y")
 
         def add_extra_output():
+            nonlocal sat
             result = self._extra_output_form(win)
             if result is None:
                 return
@@ -750,7 +751,6 @@ class GroundtrackGUI(tk.Tk):
                 args += ["--extra-output-port", result["port"]]
             returncode, output = self.run_cmd(args)
             if returncode == 0:
-                nonlocal sat
                 sat = next(s for s in load_satellites() if s["name"] == name)
                 refresh_extra_list()
             else:
@@ -758,6 +758,7 @@ class GroundtrackGUI(tk.Tk):
                 messagebox.showerror("Failed to add extra output", last_line)
 
         def remove_extra_output():
+            nonlocal sat
             sel = extra_list.curselection()
             if not sel:
                 return
@@ -768,7 +769,6 @@ class GroundtrackGUI(tk.Tk):
             returncode, output = self.run_cmd([sys.executable, "edit_satellite.py", name,
                                                 "--remove-extra-output", entry.get("name")])
             if returncode == 0:
-                nonlocal sat
                 sat = next(s for s in load_satellites() if s["name"] == name)
                 refresh_extra_list()
             else:
