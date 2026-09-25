@@ -460,6 +460,120 @@ class GroundtrackGUI(tk.Tk):
                      "\nApprove/reject passes there, then use 'Show schedule' "
                      "here once you're done.")
 
+    def _extra_output_form(self, parent):
+        """Small modal sub-form for one extra_outputs entry. Returns a
+        dict with name/protocol/block/port-or-address, or None if
+        cancelled. Used by both the Edit dialog's 'Add output...' button."""
+        win = tk.Toplevel(parent)
+        win.title("Add extra output")
+        win.resizable(False, False)
+        win.transient(parent)
+        win.grab_set()
+
+        result = {}
+
+        # gather every existing extra_output across every satellite, so a
+        # new one (e.g. BY70-4's SSDV viewer connection) can start from
+        # another satellite's already-working entry (e.g. ASRTU-1's)
+        # instead of retyping protocol/block conventions from scratch
+        templates = []  # (display_string, entry_dict)
+        for s in load_satellites():
+            for e in s.get("extra_outputs", []):
+                detail = e.get("address") if e.get("protocol") == "zeromq_pub" \
+                    else f"port {e.get('port')}"
+                templates.append((f"{s['name']}: {e.get('name')} ({e.get('protocol')}, {detail})", e))
+
+        ttk.Label(win, text="Copy from existing output:").grid(
+            row=0, column=0, sticky="e", padx=(10, 4), pady=(10, 4))
+        template_var = tk.StringVar(value="(none - start blank)")
+        template_menu = ttk.OptionMenu(
+            win, template_var, "(none - start blank)",
+            "(none - start blank)", *[t[0] for t in templates])
+        template_menu.grid(row=0, column=1, padx=(0, 10), pady=(10, 4), sticky="w")
+
+        ttk.Label(win, text="Name (e.g. ssdv_viewer):").grid(
+            row=1, column=0, sticky="e", padx=(10, 4), pady=4)
+        name_entry = ttk.Entry(win, width=28)
+        name_entry.grid(row=1, column=1, padx=(0, 10), pady=4)
+
+        ttk.Label(win, text="Protocol:").grid(row=2, column=0, sticky="e",
+                                               padx=(10, 4), pady=4)
+        protocol_var = tk.StringVar(value="tcp_server")
+        protocol_menu = ttk.OptionMenu(win, protocol_var, "tcp_server",
+                                        "tcp_server", "tcp_client", "zeromq_pub")
+        protocol_menu.grid(row=2, column=1, padx=(0, 10), pady=4, sticky="w")
+
+        ttk.Label(win, text="Block name in .grc:").grid(
+            row=3, column=0, sticky="e", padx=(10, 4), pady=4)
+        block_entry = ttk.Entry(win, width=28)
+        block_entry.insert(0, "network_socket_pdu_0")
+        block_entry.grid(row=3, column=1, padx=(0, 10), pady=4)
+
+        value_label = ttk.Label(win, text="Port:")
+        value_label.grid(row=4, column=0, sticky="e", padx=(10, 4), pady=4)
+        value_entry = ttk.Entry(win, width=28)
+        value_entry.grid(row=4, column=1, padx=(0, 10), pady=4)
+
+        def on_protocol_change(*_):
+            if protocol_var.get() == "zeromq_pub":
+                value_label.config(text="Address:")
+                value_entry.delete(0, tk.END)
+                value_entry.insert(0, "tcp://127.0.0.1:5556")
+                block_entry.delete(0, tk.END)
+                block_entry.insert(0, "zeromq_pub_msg_sink_0")
+            else:
+                value_label.config(text="Port:")
+                value_entry.delete(0, tk.END)
+                block_entry.delete(0, tk.END)
+                block_entry.insert(0, "network_socket_pdu_0")
+        protocol_var.trace_add("write", on_protocol_change)
+
+        def on_template_change(*_):
+            choice = template_var.get()
+            match = next((e for label, e in templates if label == choice), None)
+            if match is None:
+                return
+            # copies the template's shape (protocol, block, value) as a
+            # starting point - leaves the name blank since that should
+            # be specific to this satellite, not copied verbatim
+            protocol_var.set(match.get("protocol", "tcp_server"))
+            block_entry.delete(0, tk.END)
+            block_entry.insert(0, match.get("block", ""))
+            value_entry.delete(0, tk.END)
+            if match.get("protocol") == "zeromq_pub":
+                value_entry.insert(0, match.get("address", ""))
+            else:
+                value_entry.insert(0, str(match.get("port", "")))
+        template_var.trace_add("write", on_template_change)
+
+        status = ttk.Label(win, text="", foreground="#a00", wraplength=280)
+        status.grid(row=5, column=0, columnspan=2, padx=10)
+
+        def ok():
+            name = name_entry.get().strip()
+            block = block_entry.get().strip()
+            value = value_entry.get().strip()
+            if not name or not block or not value:
+                status.config(text="All fields are required.")
+                return
+            result["name"] = name
+            result["protocol"] = protocol_var.get()
+            result["block"] = block
+            if protocol_var.get() == "zeromq_pub":
+                result["address"] = value
+            else:
+                result["port"] = value
+            win.destroy()
+
+        btn_row = ttk.Frame(win)
+        btn_row.grid(row=6, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_row, text="OK", command=ok).pack(side="left", padx=4)
+        ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="left")
+
+        name_entry.focus_set()
+        win.wait_window()  # block until this sub-form closes
+        return result if result else None
+
     def add_satellite_dialog(self):
         sats = load_satellites()
         suggested_prod, suggested_cons = suggest_next_ports(sats)
@@ -599,17 +713,82 @@ class GroundtrackGUI(tk.Tk):
         ttk.Checkbutton(win, text="Enabled", variable=enabled_var).grid(
             row=6, column=0, columnspan=2, sticky="w", padx=10, pady=(8, 4))
 
-        if has_extra:
-            ttk.Label(win, text="This satellite has extra_outputs - not editable here. "
-                                 "Edit satellites.yaml directly if those need to change.",
-                      foreground="#a00", font=("", 8), wraplength=300).grid(
-                row=7, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="w")
+        ttk.Label(win, text="Extra outputs (direct connections, bypassing relay.py):",
+                  font=("", 9)).grid(row=7, column=0, columnspan=2, padx=10,
+                                      pady=(6, 2), sticky="w")
+        extra_frame = ttk.Frame(win)
+        extra_frame.grid(row=8, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="w")
+
+        extra_list = tk.Listbox(extra_frame, height=3, width=42)
+        extra_list.pack(side="left")
+
+        def refresh_extra_list():
+            extra_list.delete(0, tk.END)
+            for e in sat.get("extra_outputs", []):
+                if e.get("protocol") == "zeromq_pub":
+                    detail = e.get("address", "?")
+                else:
+                    detail = f"port {e.get('port', '?')}"
+                extra_list.insert(tk.END, f"{e.get('name', '?')}  ({e.get('protocol', '?')}, {detail})")
+
+        refresh_extra_list()
+
+        extra_btns = ttk.Frame(extra_frame)
+        extra_btns.pack(side="left", padx=(6, 0), fill="y")
+
+        def add_extra_output():
+            result = self._extra_output_form(win)
+            if result is None:
+                return
+            args = [sys.executable, "edit_satellite.py", name,
+                    "--extra-output-name", result["name"],
+                    "--extra-output-protocol", result["protocol"],
+                    "--extra-output-block", result["block"]]
+            if result["protocol"] == "zeromq_pub":
+                args += ["--extra-output-address", result["address"]]
+            else:
+                args += ["--extra-output-port", result["port"]]
+            returncode, output = self.run_cmd(args)
+            if returncode == 0:
+                nonlocal sat
+                sat = next(s for s in load_satellites() if s["name"] == name)
+                refresh_extra_list()
+            else:
+                last_line = output.strip().splitlines()[-1] if output.strip() else "failed"
+                messagebox.showerror("Failed to add extra output", last_line)
+
+        def remove_extra_output():
+            sel = extra_list.curselection()
+            if not sel:
+                return
+            entry = sat.get("extra_outputs", [])[sel[0]]
+            if not messagebox.askyesno("Remove extra output",
+                                        f"Remove '{entry.get('name')}' from {name}?"):
+                return
+            returncode, output = self.run_cmd([sys.executable, "edit_satellite.py", name,
+                                                "--remove-extra-output", entry.get("name")])
+            if returncode == 0:
+                nonlocal sat
+                sat = next(s for s in load_satellites() if s["name"] == name)
+                refresh_extra_list()
+            else:
+                last_line = output.strip().splitlines()[-1] if output.strip() else "failed"
+                messagebox.showerror("Failed to remove extra output", last_line)
+
+        ttk.Button(extra_btns, text="Add output...", command=add_extra_output).pack(fill="x")
+        ttk.Button(extra_btns, text="Remove selected",
+                   command=remove_extra_output).pack(fill="x", pady=(4, 0))
+
+        ttk.Label(win, text="(extra output changes above apply immediately, "
+                             "separately from Save below)",
+                  foreground="#666", font=("", 8)).grid(
+            row=9, column=0, columnspan=2, padx=10, sticky="w")
 
         status_label = ttk.Label(win, text="", foreground="#a00", wraplength=340)
-        status_label.grid(row=8, column=0, columnspan=2, padx=10, pady=(4, 0))
+        status_label.grid(row=10, column=0, columnspan=2, padx=10, pady=(4, 0))
 
         button_row = ttk.Frame(win)
-        button_row.grid(row=9, column=0, columnspan=2, pady=10)
+        button_row.grid(row=11, column=0, columnspan=2, pady=10)
 
         def submit():
             args = [sys.executable, "edit_satellite.py", name]

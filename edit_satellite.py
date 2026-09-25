@@ -14,10 +14,22 @@ Usage:
     python3 edit_satellite.py NAME --enabled
     python3 edit_satellite.py NAME --disabled
 
-Does NOT currently support editing extra_outputs - that still needs
-hand-editing satellites.yaml directly (and the .grc, if the block itself
-needs to change). A satellite using extra_outputs is flagged so you
-don't forget to check it after any edit here.
+    # extra_outputs - a satellite with a second live output that a
+    # specific downstream app connects to directly, bypassing relay.py
+    # (see check_extra_outputs() in preflight.py for the full rationale).
+    # Adding with a name that already exists on this satellite replaces
+    # that entry rather than duplicating it, so re-running the same
+    # command with a corrected value is safe.
+    python3 edit_satellite.py NAME --extra-output-name ssdv_viewer \\
+        --extra-output-protocol tcp_server \\
+        --extra-output-block network_socket_pdu_0 --extra-output-port 9985
+
+    python3 edit_satellite.py NAME --extra-output-name telemetry_upload_agent \\
+        --extra-output-protocol zeromq_pub \\
+        --extra-output-block zeromq_pub_msg_sink_0 \\
+        --extra-output-address tcp://127.0.0.1:5556
+
+    python3 edit_satellite.py NAME --remove-extra-output ssdv_viewer
 """
 
 import argparse
@@ -44,6 +56,20 @@ def main():
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--enabled", action="store_true")
     group.add_argument("--disabled", action="store_true")
+
+    ap.add_argument("--extra-output-name", default=None,
+                     help="add/replace an extra_outputs entry with this name")
+    ap.add_argument("--extra-output-protocol", choices=["tcp_server", "tcp_client", "zeromq_pub"],
+                     default=None)
+    ap.add_argument("--extra-output-block", default=None,
+                     help="the block's exact name in the .grc, e.g. network_socket_pdu_0")
+    ap.add_argument("--extra-output-port", type=int, default=None,
+                     help="for tcp_server/tcp_client protocols")
+    ap.add_argument("--extra-output-address", default=None,
+                     help="for zeromq_pub protocol, e.g. tcp://127.0.0.1:5556")
+    ap.add_argument("--remove-extra-output", default=None, metavar="NAME",
+                     help="remove the named extra_outputs entry")
+
     args = ap.parse_args()
 
     with open(CONFIG_PATH) as f:
@@ -88,6 +114,48 @@ def main():
             changes.append("enabled: true -> false")
         sat["enabled"] = False
 
+    if args.remove_extra_output:
+        existing = sat.get("extra_outputs", [])
+        before = len(existing)
+        sat["extra_outputs"] = [e for e in existing if e.get("name") != args.remove_extra_output]
+        after = len(sat["extra_outputs"])
+        if after == before:
+            sys.exit(f"No extra_output named {args.remove_extra_output!r} on {args.name}")
+        changes.append(f"removed extra_output '{args.remove_extra_output}'")
+        if not sat["extra_outputs"]:
+            del sat["extra_outputs"]
+
+    if args.extra_output_name:
+        if not args.extra_output_protocol or not args.extra_output_block:
+            sys.exit("--extra-output-name needs --extra-output-protocol and "
+                      "--extra-output-block too")
+        if args.extra_output_protocol == "zeromq_pub" and not args.extra_output_address:
+            sys.exit("protocol zeromq_pub needs --extra-output-address")
+        if args.extra_output_protocol in ("tcp_server", "tcp_client") and args.extra_output_port is None:
+            sys.exit(f"protocol {args.extra_output_protocol} needs --extra-output-port")
+
+        entry = {
+            "name": args.extra_output_name,
+            "protocol": args.extra_output_protocol,
+            "block": args.extra_output_block,
+        }
+        if args.extra_output_protocol == "zeromq_pub":
+            entry["address"] = args.extra_output_address
+        else:
+            entry["port"] = args.extra_output_port
+
+        existing = sat.setdefault("extra_outputs", [])
+        replaced = False
+        for i, e in enumerate(existing):
+            if e.get("name") == args.extra_output_name:
+                existing[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            existing.append(entry)
+        changes.append(f"{'replaced' if replaced else 'added'} extra_output "
+                        f"'{args.extra_output_name}'")
+
     if not changes:
         print(f"No changes given for {args.name} - nothing to do.")
         return
@@ -129,10 +197,10 @@ def main():
                 yaml.dump(grc, f, sort_keys=False, default_flow_style=False)
             print(f"\nAlso updated {grc_path} to match - re-run: grcc {grc_path}")
 
-    if sat.get("extra_outputs"):
-        print(f"\nNote: {args.name} has extra_outputs declared - this script doesn't "
-              f"touch those. If anything here affects them, check satellites.yaml and "
-              f"the .grc's matching blocks by hand.")
+    if args.extra_output_name or args.remove_extra_output:
+        print(f"\nNote: this only updates satellites.yaml. If the .grc's actual block "
+              f"(name, port, or address) needs to change too, edit that separately - "
+              f"this doesn't touch .grc content for extra_outputs.")
 
 
 if __name__ == "__main__":
