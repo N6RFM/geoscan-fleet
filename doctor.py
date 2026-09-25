@@ -14,6 +14,7 @@ Usage:
 
 import glob
 import os
+import shutil
 import yaml
 import re
 import socket
@@ -245,7 +246,7 @@ def quick_status():
         print("Next:     no schedule.yaml - run plan_passes.py")
 
 
-def check_stray_compiled_files():
+def check_stray_compiled_files(fix=False):
     section("Stray compiled flowgraphs (grcc writes to cwd, not the .grc's own folder)")
     grc_paths = sorted(glob.glob("flowgraphs/*.grc"))
     found_any = False
@@ -260,12 +261,20 @@ def check_stray_compiled_files():
             found_any = True
             correct_path = f"flowgraphs/{slug}.py"
             if os.path.exists(correct_path):
-                print(f"  {stray_main} - stray duplicate, {correct_path} already "
-                      f"exists correctly. Safe to remove:")
-                print(f"    rm {stray_main}")
+                if fix:
+                    os.remove(stray_main)
+                    print(f"  removed {stray_main} ({correct_path} already exists correctly)")
+                else:
+                    print(f"  {stray_main} - stray duplicate, {correct_path} already "
+                          f"exists correctly. Safe to remove:")
+                    print(f"    rm {stray_main}")
             else:
-                print(f"  {stray_main} - landed here instead of {correct_path}. Move it:")
-                print(f"    mv {stray_main} {correct_path}")
+                if fix:
+                    shutil.move(stray_main, correct_path)
+                    print(f"  moved {stray_main} -> {correct_path}")
+                else:
+                    print(f"  {stray_main} - landed here instead of {correct_path}. Move it:")
+                    print(f"    mv {stray_main} {correct_path}")
 
         # companion .py files for every embedded Python block (epy_block) -
         # grcc writes one per embedded block too, also to cwd. Unlike the
@@ -282,18 +291,28 @@ def check_stray_compiled_files():
             stray_companion = f"{slug}_{name}.py"
             if os.path.exists(stray_companion):
                 found_any = True
-                print(f"  {stray_companion} - disposable companion file for an "
-                      f"embedded Python block, regenerated on every compile:")
-                print(f"    rm {stray_companion}")
+                if fix:
+                    os.remove(stray_companion)
+                    print(f"  removed {stray_companion} (disposable, regenerated on every compile)")
+                else:
+                    print(f"  {stray_companion} - disposable companion file for an "
+                          f"embedded Python block, regenerated on every compile:")
+                    print(f"    rm {stray_companion}")
 
     if not found_any:
         print("  none found")
-    else:
+    elif not fix:
         print(f"\n  This happens because 'grcc <path>' always writes its output - "
               f"the main flowgraph AND a companion file per embedded Python block - "
               f"to the current directory, ignoring the .grc's own folder. "
               f"'./regen_all.sh' avoids it entirely by passing -o flowgraphs "
-              f"explicitly. Prefer that over calling grcc directly.")
+              f"explicitly. Prefer that over calling grcc directly.\n"
+              f"  Run 'python3 doctor.py --fix' to clean these up automatically.")
+    else:
+        print(f"\n  Done. Nothing else in this toolkit reads these files from the "
+              f"repo root, so removing/moving them can't break anything that was "
+              f"working - './regen_all.sh' would have overwritten flowgraphs/*.py "
+              f"the same way on its next run regardless.")
 
 
 def main():
@@ -301,12 +320,15 @@ def main():
         quick_status()
         return
 
-    extra_args = sys.argv[1:]  # passed straight through to preflight.py
+    fix = "--fix" in sys.argv
+    argv = [a for a in sys.argv[1:] if a != "--fix"]
+
+    extra_args = argv  # passed straight through to preflight.py
     real = where_are_we()
     find_other_copies(real)
     check_processes()
     check_ports()
-    check_stray_compiled_files()
+    check_stray_compiled_files(fix=fix)
     run_preflight(extra_args)
 
 
