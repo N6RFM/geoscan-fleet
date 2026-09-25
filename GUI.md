@@ -30,7 +30,7 @@ by a divider:
 | Button | What it actually runs |
 |---|---|
 | Refresh | (read-only - re-parses `satellites.yaml` and re-checks each satellite's files) |
-| Add satellite... | `add_satellite.py --name ... --norad ... --freq ...` (plus `--template`/`--record-only` if recording-only is checked, plus `--producer-port`/`--consumer-port` if you've overridden the suggested defaults) |
+| Add satellite... | `add_satellite.py --name ... --norad ... --freq ...` (plus `--record-only` if checked, plus `--producer-port`/`--consumer-port` if you've overridden the suggested defaults) |
 | Edit selected | `edit_satellite.py NAME` with whichever fields you changed - see below |
 | Enable / Disable selected | `toggle_satellite.py --enable/--disable NAME` |
 | Regenerate .grc for selected | `grcc flowgraphs/<name>.grc` |
@@ -47,12 +47,15 @@ only close themselves on success.
 
 **Edit selected** opens with the satellite's current values pre-filled:
 NORAD, frequency, min elevation, producer/consumer ports (if it uses the
-relay), and an Enabled checkbox. Changing NORAD or frequency also
-updates the matching blocks in the `.grc` automatically - the same thing
-`add_satellite.py` does when a satellite is first created - so
-`satellites.yaml` and the `.grc` can't quietly drift apart from each
-other. You still need to `grcc` the `.grc` afterward; the dialog says so
-if it changed anything there.
+relay), and an Enabled checkbox. **Save only ever writes to
+`satellites.yaml` - it never touches the `.grc`.** If a change here (a
+new frequency, a corrected NORAD) needs the `.grc` updated to match,
+that's a separate, deliberate step you do yourself in GRC - `groundtrack`
+doesn't automate `.grc` editing anywhere, after repeatedly finding that
+kind of automation more fragile than doing it by hand (a stray internal
+`id` field, blocks left unconfigured instead of removed, an orphaned
+embedded-Python block left disconnected on the canvas - three separate
+real bugs, across three separate satellites).
 
 ### extra_outputs
 

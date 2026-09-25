@@ -170,7 +170,7 @@ groundtrack/
 ├── test_downstream.py       # pushes test frames through the relay to your decoder(s)
 ├── send_test_frames.py      # single-satellite version test_downstream.py builds on
 ├── locate_decoders.py       # finds & patches decoder .yml paths in your .grc files
-├── add_satellite.py         # generates a new satellite's .grc + config entry
+├── add_satellite.py         # adds a new satellite's config entry (you build the .grc)
 ├── edit_satellite.py        # edits an existing satellite's fields (and extra_outputs)
 ├── toggle_satellite.py      # enable/disable a satellite without deleting its config
 ├── update_tle.py            # refreshes tle_file from a base of Celestrak groups + extras
@@ -525,24 +525,27 @@ identify the next one by name and AOS time. If a pass should be starting
 soon and nothing happens, that means it's still counting down - it won't
 launch a flowgraph until wall-clock AOS actually arrives.
 
-**`add_satellite.py`** - generates a new satellite's `.grc` from an
-existing one as a template and adds its config entry, in one step:
+**`add_satellite.py`** - adds a new satellite's config entry to
+`satellites.yaml`:
 ```
 python3 add_satellite.py --name GEOSCAN-3 --norad 64893 --freq 435742000
 ```
-This is the tool to use for adding a satellite - `plan_passes.py
---add-satellite` only adds the config entry and leaves the `.grc` to you.
-
-For a satellite with no decoder yet - raw IQ recording only, no relay,
-no KISS output:
+For a satellite with no decoder yet, or one whose outputs will connect
+directly via `extra_outputs` rather than through the relay:
 ```
-python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 \
-    --template flowgraphs/geoscan1.grc --record-only
+python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 --record-only
 ```
-Strips the decoder/KISS/telemetry/relay wiring from the template
-automatically, sets `recordOnStart: True`, and adds the config entry
-with no `producer_port`/`consumer_port` - see "Adding a satellite" below
-for the full picture, including toggling satellites on and off.
+Auto-assigns the next free `producer_port`/`consumer_port` (unless
+`--record-only`, or overridden with `--producer-port`/`--consumer-port`),
+refuses a NORAD or port collision with another configured satellite, and
+tells you exactly what's still needed afterward. **Only ever touches
+`satellites.yaml` - never generates or modifies a `.grc`.** Building
+`flowgraphs/<name>.grc` is a manual step in GRC every time, same as
+`edit_satellite.py` below and every other `.grc`-shaped thing in this
+toolkit - see "Why nothing here touches `.grc` files" under "Adding a
+satellite" for why. `plan_passes.py --add-satellite` does roughly the
+same job through an interactive prompt instead of flags, though without
+`add_satellite.py`'s port-collision and duplicate-NORAD checks.
 
 **`edit_satellite.py`** - updates an already-configured satellite's
 fields, and its `extra_outputs` list, without touching anything you
@@ -554,11 +557,12 @@ python3 edit_satellite.py ASRTU-1_SSDV --extra-output-name ssdv_viewer \
     --extra-output-protocol tcp_server \
     --extra-output-block network_socket_pdu_0 --extra-output-port 9985
 ```
-Keeps the `.grc`'s `freq`/`nfreq`/decoder-`norad` blocks in sync
-automatically when those fields change, refuses a NORAD or port
-collision with another satellite, and replaces (rather than duplicates)
-an `extra_outputs` entry when you re-add one with the same name. See
-"Adding a satellite" below for the full `extra_outputs` picture.
+Only ever touches `satellites.yaml` - refuses a NORAD or port collision
+with another satellite, and replaces (rather than duplicates) an
+`extra_outputs` entry when you re-add one with the same name. If a
+change here needs the `.grc` updated to match (a new frequency, say),
+that's a separate manual step in GRC; the script says so when it applies.
+See "Adding a satellite" below for the full `extra_outputs` picture.
 
 **`ci_check.py`** - the portable subset of `preflight.py`'s checks that
 can run with no GNU Radio, no Hamlib, and no real TLE file - what runs in
@@ -865,6 +869,26 @@ convenient, memorable scheme, not a requirement.
 
 ## Adding a satellite
 
+**Why nothing here touches `.grc` files.** Earlier versions of
+`add_satellite.py` generated a new satellite's `.grc` automatically from
+an existing one as a template. That repeatedly proved fragile in ways
+GRC's own editor doesn't have - across three different satellites,
+real bugs surfaced: a stray internal `id` field left mismatched with the
+filename, `--record-only` leaving decoder/relay blocks present-but-
+unconfigured instead of actually removing them, and an orphaned
+`kiss_encode_pdu` block left disconnected on the canvas because it's an
+embedded Python block sharing a generic type identifier with every other
+embedded block. Each was fixable, but the pattern itself - a script
+trying to safely manipulate GNU Radio's nested block-graph structure -
+kept finding new ways to fail quietly. `satellites.yaml` is a simple flat
+config format; a `.grc` is a complex graph GRC itself already knows how
+to edit correctly. So the scope boundary is now firm: **every script
+here only ever reads or writes `satellites.yaml`. Building or editing a
+`.grc` - a brand new satellite, or a decoder/relay/`extra_outputs` block
+inside one that already exists - is always a manual step in GRC.**
+Copying an existing satellite's `.grc` as a starting point and adapting
+it is a perfectly reasonable way to do that.
+
 **Decode-and-relay** (has a `gr-satellites` decoder definition, feeds a
 downstream decoder GUI over KISS):
 ```
@@ -874,16 +898,14 @@ python3 add_satellite.py --name GEOSCAN-3 --norad 64893 --freq 435742000
 **Recording-only** (no decoder yet, or intentionally none - just raw IQ
 to disk for later analysis):
 ```
-python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 \
-    --template flowgraphs/geoscan1.grc --record-only
+python3 add_satellite.py --name SCIONX --norad 69880 --freq 437500000 --record-only
 ```
-`--record-only` strips the decoder/KISS-file-sink/telemetry-submit/relay
-wiring from the template, sets `recordOnStart: True` so it records
-unattended, removes the Qt waterfall (real, measured CPU cost for a
-window nobody's watching during an automated pass), and adds the config
-entry with no `producer_port`/`consumer_port` at all - that absence is
-what tells `relay.py` and `preflight.py` this satellite has no relay
-involvement.
+`--record-only` just means the config entry gets no
+`producer_port`/`consumer_port` - that absence is what tells `relay.py`
+and `preflight.py` this satellite has no relay involvement. The `.grc`
+itself - no decoder, no KISS sink, no network block, `recordOnStart:
+True`, no waterfall - is still yours to build in GRC; `scionx.grc` is a
+working example to copy from.
 
 **Direct-connection outputs** (`extra_outputs`) - for a satellite with a
 second live output that a specific downstream app connects to directly,
@@ -920,11 +942,13 @@ agent to subscribe to) both bypass the relay this way.
 it validates `producer_port` - confirming the named block exists, and
 that its port (for `tcp_server`/`tcp_client`) or address (for
 `zeromq_pub`) actually matches. `add_satellite.py` doesn't create these
-for you; either hand-edit `satellites.yaml` and the `.grc` together, or
-use `edit_satellite.py` (below) or the GUI's Edit dialog, which manages
-this list properly - including copying an existing satellite's outputs
-as a starting point when a new satellite shares the same downstream app
-(as ASRTU-1_SSDV and BY70-4 both do).
+for you - use `edit_satellite.py` (below) or the GUI's Edit dialog,
+which manage this list properly in `satellites.yaml`, including copying
+an existing satellite's outputs as a starting point when a new satellite
+shares the same downstream app (as ASRTU-1_SSDV and BY70-4 both do).
+Either way, the `.grc`'s actual block - its name, port, or address -
+still has to be built or edited separately in GRC to match; nothing here
+touches `.grc` content.
 
 Either way, finish with:
 ```
@@ -944,14 +968,14 @@ python3 edit_satellite.py ASRTU-1_SSDV --extra-output-name ssdv_viewer \
     --extra-output-block network_socket_pdu_0 --extra-output-port 9985
 python3 edit_satellite.py ASRTU-1_SSDV --remove-extra-output ssdv_viewer
 ```
-Only touches the fields you actually pass. Changing NORAD or frequency
-also updates the matching blocks in the `.grc` automatically, the same
-way `add_satellite.py` does on creation - `satellites.yaml` and the
-`.grc` can't quietly drift apart from each other this way. Refuses a
-NORAD or port collision with another configured satellite rather than
-silently creating one. Adding an `extra_outputs` entry with a name that
-already exists on that satellite replaces it rather than duplicating it,
-so re-running the same command with a corrected value is safe.
+Only touches the fields you actually pass, and only ever `satellites.yaml`
+- never the `.grc`. If a change here (a new frequency, a corrected
+NORAD) needs the `.grc` to match, that's still your own separate edit in
+GRC; the script prints a note when that applies. Refuses a NORAD or port
+collision with another configured satellite rather than silently
+creating one. Adding an `extra_outputs` entry with a name that already
+exists on that satellite replaces it rather than duplicating it, so
+re-running the same command with a corrected value is safe.
 
 **Pausing a satellite** without deleting its hard-won config - sharing
 one SDR across satellites you don't all want active at once is the
