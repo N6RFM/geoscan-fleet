@@ -86,6 +86,14 @@ def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port, r
             for b in blocks:
                 if b["id"] == block_id:
                     strip_names.add(b["name"])
+        # kiss_encode_pdu is an embedded Python block (id: epy_block, same
+        # as every other embedded block) - it only exists to feed
+        # network_socket_pdu, which is already being stripped above, so
+        # it can't be matched by id the same way; matched by name prefix
+        # instead, since that's the one thing distinguishing it
+        for b in blocks:
+            if b["id"] == "epy_block" and b["name"].startswith("kiss_encode_pdu"):
+                strip_names.add(b["name"])
         if strip_names:
             blocks[:] = [b for b in blocks if b["name"] not in strip_names]
             data["connections"] = [c for c in data.get("connections", [])

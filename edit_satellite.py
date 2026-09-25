@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-Edit an existing satellite's fields in satellites.yaml - and, where it's
-unambiguous, keep its .grc in sync automatically the same way
-add_satellite.py does when a satellite is first created.
+Edit an existing satellite's fields in satellites.yaml.
+
+Only ever touches satellites.yaml - never the .grc. Automated .grc
+editing has repeatedly proven fragile (a stray leftover block here, a
+wrong internal id there) in ways GRC's own editor doesn't have. If a
+change here (a new frequency, a different NORAD) needs the .grc updated
+to match, that's a deliberate manual step in GRC itself - this script
+tells you when that's the case rather than trying to do it for you.
 
 Only touches fields you actually pass. Leaves everything else alone.
 
@@ -19,7 +24,10 @@ Usage:
     # (see check_extra_outputs() in preflight.py for the full rationale).
     # Adding with a name that already exists on this satellite replaces
     # that entry rather than duplicating it, so re-running the same
-    # command with a corrected value is safe.
+    # command with a corrected value is safe. This still only ever
+    # touches satellites.yaml - if the .grc's block itself needs to
+    # change (its name, port, or address), that's a separate edit in
+    # GRC, same as everything else here.
     python3 edit_satellite.py NAME --extra-output-name ssdv_viewer \\
         --extra-output-protocol tcp_server \\
         --extra-output-block network_socket_pdu_0 --extra-output-port 9985
@@ -33,15 +41,10 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 import yaml
 
 CONFIG_PATH = "satellites.yaml"
-
-
-def slug_for(sat):
-    return sat.get("script", "").replace("flowgraphs/", "").replace(".py", "")
 
 
 def main():
@@ -82,16 +85,19 @@ def main():
         sys.exit(f"No satellite named {args.name!r} in {CONFIG_PATH}. Configured: {names}")
 
     changes = []
+    grc_note_needed = False
 
     if args.norad is not None and args.norad != sat.get("norad"):
         if any(s is not sat and s.get("norad") == args.norad for s in sats):
             sys.exit(f"NORAD {args.norad} is already used by another satellite - refusing")
         changes.append(f"norad: {sat.get('norad')} -> {args.norad}")
         sat["norad"] = args.norad
+        grc_note_needed = True
 
     if args.freq is not None and args.freq != sat.get("freq_hz"):
         changes.append(f"freq_hz: {sat.get('freq_hz')} -> {args.freq}")
         sat["freq_hz"] = args.freq
+        grc_note_needed = True
 
     if args.min_elev is not None and args.min_elev != sat.get("min_elev_deg"):
         changes.append(f"min_elev_deg: {sat.get('min_elev_deg')} -> {args.min_elev}")
@@ -104,6 +110,7 @@ def main():
                 sys.exit(f"{port_field} {arg_val} is already used by another satellite - refusing")
             changes.append(f"{port_field}: {sat.get(port_field)} -> {arg_val}")
             sat[port_field] = arg_val
+            grc_note_needed = True
 
     if args.enabled:
         if sat.get("enabled", True) is not True:
@@ -167,40 +174,15 @@ def main():
     for c in changes:
         print(f"  {c}")
 
-    # keep the .grc in sync for the two fields that live there too,
-    # the same way add_satellite.py sets them on creation
-    grc_path = f"flowgraphs/{slug_for(sat)}.grc"
-    if (args.norad is not None or args.freq is not None) and os.path.exists(grc_path):
-        with open(grc_path) as f:
-            grc = yaml.safe_load(f)
-        blocks = {b["name"]: b for b in grc.get("blocks", [])}
-        grc_changed = False
-
-        if args.freq is not None:
-            for var in ("freq", "nfreq"):
-                if var in blocks:
-                    blocks[var]["parameters"]["value"] = str(args.freq)
-                    grc_changed = True
-
-        if args.norad is not None:
-            dec = blocks.get("satellites_satellite_decoder_0")
-            if dec:
-                dec["parameters"]["norad"] = str(args.norad)
-                grc_changed = True
-            sub = blocks.get("satellites_telemetry_submit_0")
-            if sub:
-                sub["parameters"]["norad"] = str(args.norad)
-                grc_changed = True
-
-        if grc_changed:
-            with open(grc_path, "w") as f:
-                yaml.dump(grc, f, sort_keys=False, default_flow_style=False)
-            print(f"\nAlso updated {grc_path} to match - re-run: grcc {grc_path}")
+    if grc_note_needed:
+        print(f"\nNote: this only updates satellites.yaml, not the .grc. If the norad, "
+              f"frequency, or ports need to match in flowgraphs/*.grc too, open it in GRC "
+              f"and update those blocks by hand.")
 
     if args.extra_output_name or args.remove_extra_output:
         print(f"\nNote: this only updates satellites.yaml. If the .grc's actual block "
-              f"(name, port, or address) needs to change too, edit that separately - "
-              f"this doesn't touch .grc content for extra_outputs.")
+              f"(name, port, or address) needs to change too, edit that separately in GRC - "
+              f"this never touches .grc content.")
 
 
 if __name__ == "__main__":
