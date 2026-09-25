@@ -60,6 +60,7 @@ import yaml
 
 CONFIG_PATH = "satellites.yaml"
 RETRY_DELAY_S = 2
+HEARTBEAT_EVERY = 30  # ~1 minute of quiet retries between "still waiting" logs
 
 
 class DownstreamListener:
@@ -131,12 +132,16 @@ class UpstreamPump:
             self.log(msg)
 
     async def run(self):
+        attempt = 0
         while True:
+            attempt += 1
             try:
-                self.vlog(f"connecting upstream to {self.upstream_host}:{self.upstream_port} ...")
+                if attempt == 1:
+                    self.vlog(f"connecting upstream to {self.upstream_host}:{self.upstream_port} ...")
                 reader, writer = await asyncio.open_connection(
                     self.upstream_host, self.upstream_port)
                 self.log(f"connected upstream to {self.upstream_host}:{self.upstream_port}")
+                attempt = 0
                 while True:
                     data = await reader.read(65536)
                     if not data:
@@ -145,7 +150,18 @@ class UpstreamPump:
                 self.log("upstream connection closed (flowgraph likely exited at LOS) - "
                          "will keep retrying")
             except (ConnectionRefusedError, OSError) as e:
-                self.vlog(f"upstream not available yet ({e}) - retrying in {RETRY_DELAY_S}s")
+                # only the first failure and then an occasional heartbeat get
+                # logged - between passes this retries every 2s for however
+                # long the satellite is off the schedule, and printing every
+                # single attempt would flood the terminal with nothing new to
+                # say. HEARTBEAT_EVERY attempts (~1 minute at the default
+                # retry delay) is a "still here, still waiting" confirmation
+                # without drowning out anything actually worth seeing.
+                if attempt == 1:
+                    self.vlog(f"upstream not available yet ({e}) - retrying "
+                              f"quietly every {RETRY_DELAY_S}s")
+                elif attempt % HEARTBEAT_EVERY == 0:
+                    self.vlog(f"still waiting for upstream ({attempt} attempts so far)")
             await asyncio.sleep(RETRY_DELAY_S)
 
 
