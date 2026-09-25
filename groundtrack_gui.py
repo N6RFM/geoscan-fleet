@@ -213,10 +213,12 @@ class GroundtrackGUI(tk.Tk):
         ttk.Button(row4, text="Plan passes (interactive, new window)",
                    command=self.plan_passes_interactive).pack(side="left")
 
-        row5 = ttk.LabelFrame(self.content, text="Relay")
+        row5 = ttk.LabelFrame(self.content, text="Relay / Bridge")
         row5.pack(fill="x", padx=8, pady=4)
         ttk.Button(row5, text="Start relay.py (new window, verbose)",
                    command=self.start_relay).pack(side="left")
+        ttk.Button(row5, text="Start tcp_bridge.py (new window, verbose)",
+                   command=self.start_tcp_bridge).pack(side="left", padx=4)
 
         row6 = ttk.LabelFrame(self.content, text="Execution")
         row6.pack(fill="x", padx=8, pady=(4, 8))
@@ -462,6 +464,12 @@ class GroundtrackGUI(tk.Tk):
         that would freeze the GUI the moment it's clicked."""
         self.spawn_in_terminal([sys.executable, "relay.py", "--verbose"])
 
+    def start_tcp_bridge(self):
+        """Same reasoning as relay.py - a persistent process for
+        satellites whose flowgraph runs its own TCP_SERVER instead of
+        connecting out as a client, needing its own detached terminal."""
+        self.spawn_in_terminal([sys.executable, "tcp_bridge.py", "--verbose"])
+
     def start_run_passes(self):
         """run_passes.py waits indefinitely for AOS and never exits on its
         own - running it the same way as preflight.py/doctor.py would
@@ -524,8 +532,12 @@ class GroundtrackGUI(tk.Tk):
         templates = []  # (display_string, entry_dict)
         for s in load_satellites():
             for e in s.get("extra_outputs", []):
-                detail = e.get("address") if e.get("protocol") == "zeromq_pub" \
-                    else f"port {e.get('port')}"
+                if e.get("protocol") == "zeromq_pub":
+                    detail = e.get("address")
+                elif e.get("protocol") == "tcp_bridge":
+                    detail = f"port {e.get('port')}, bridge {e.get('bridge_port')}"
+                else:
+                    detail = f"port {e.get('port')}"
                 templates.append((f"{s['name']}: {e.get('name')} ({e.get('protocol')}, {detail})", e))
 
         ttk.Label(win, text="Copy from existing output:").grid(
@@ -545,7 +557,7 @@ class GroundtrackGUI(tk.Tk):
                                                padx=(10, 4), pady=4)
         protocol_var = tk.StringVar(value="tcp_server")
         protocol_menu = ttk.OptionMenu(win, protocol_var, "tcp_server",
-                                        "tcp_server", "tcp_client", "zeromq_pub")
+                                        "tcp_server", "tcp_client", "tcp_bridge", "zeromq_pub")
         protocol_menu.grid(row=2, column=1, padx=(0, 10), pady=4, sticky="w")
 
         ttk.Label(win, text="Block name in .grc:").grid(
@@ -559,6 +571,17 @@ class GroundtrackGUI(tk.Tk):
         value_entry = ttk.Entry(win, width=28)
         value_entry.grid(row=4, column=1, padx=(0, 10), pady=4)
 
+        bridge_port_label = ttk.Label(win, text="Bridge port (downstream connects here):")
+        bridge_port_entry = ttk.Entry(win, width=28)
+
+        def show_bridge_port_field(show):
+            if show:
+                bridge_port_label.grid(row=5, column=0, sticky="e", padx=(10, 4), pady=4)
+                bridge_port_entry.grid(row=5, column=1, padx=(0, 10), pady=4)
+            else:
+                bridge_port_label.grid_remove()
+                bridge_port_entry.grid_remove()
+
         def on_protocol_change(*_):
             if protocol_var.get() == "zeromq_pub":
                 value_label.config(text="Address:")
@@ -566,11 +589,19 @@ class GroundtrackGUI(tk.Tk):
                 value_entry.insert(0, "tcp://127.0.0.1:5556")
                 block_entry.delete(0, tk.END)
                 block_entry.insert(0, "zeromq_pub_msg_sink_0")
+                show_bridge_port_field(False)
+            elif protocol_var.get() == "tcp_bridge":
+                value_label.config(text="Port (the flowgraph's own TCP_SERVER):")
+                value_entry.delete(0, tk.END)
+                block_entry.delete(0, tk.END)
+                block_entry.insert(0, "network_socket_pdu_0")
+                show_bridge_port_field(True)
             else:
                 value_label.config(text="Port:")
                 value_entry.delete(0, tk.END)
                 block_entry.delete(0, tk.END)
                 block_entry.insert(0, "network_socket_pdu_0")
+                show_bridge_port_field(False)
         protocol_var.trace_add("write", on_protocol_change)
 
         def on_template_change(*_):
@@ -589,10 +620,13 @@ class GroundtrackGUI(tk.Tk):
                 value_entry.insert(0, match.get("address", ""))
             else:
                 value_entry.insert(0, str(match.get("port", "")))
+            if match.get("protocol") == "tcp_bridge":
+                bridge_port_entry.delete(0, tk.END)
+                bridge_port_entry.insert(0, str(match.get("bridge_port", "")))
         template_var.trace_add("write", on_template_change)
 
         status = ttk.Label(win, text="", foreground="#a00", wraplength=280)
-        status.grid(row=5, column=0, columnspan=2, padx=10)
+        status.grid(row=6, column=0, columnspan=2, padx=10)
 
         def ok():
             name = name_entry.get().strip()
@@ -601,6 +635,9 @@ class GroundtrackGUI(tk.Tk):
             if not name or not block or not value:
                 status.config(text="All fields are required.")
                 return
+            if protocol_var.get() == "tcp_bridge" and not bridge_port_entry.get().strip():
+                status.config(text="Bridge port is required for tcp_bridge.")
+                return
             result["name"] = name
             result["protocol"] = protocol_var.get()
             result["block"] = block
@@ -608,10 +645,12 @@ class GroundtrackGUI(tk.Tk):
                 result["address"] = value
             else:
                 result["port"] = value
+            if protocol_var.get() == "tcp_bridge":
+                result["bridge_port"] = bridge_port_entry.get().strip()
             win.destroy()
 
         btn_row = ttk.Frame(win)
-        btn_row.grid(row=6, column=0, columnspan=2, pady=10)
+        btn_row.grid(row=7, column=0, columnspan=2, pady=10)
         ttk.Button(btn_row, text="OK", command=ok).pack(side="left", padx=4)
         ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="left")
 
@@ -772,6 +811,8 @@ class GroundtrackGUI(tk.Tk):
             for e in sat.get("extra_outputs", []):
                 if e.get("protocol") == "zeromq_pub":
                     detail = e.get("address", "?")
+                elif e.get("protocol") == "tcp_bridge":
+                    detail = f"port {e.get('port', '?')}, bridge {e.get('bridge_port', '?')}"
                 else:
                     detail = f"port {e.get('port', '?')}"
                 extra_list.insert(tk.END, f"{e.get('name', '?')}  ({e.get('protocol', '?')}, {detail})")
@@ -794,6 +835,8 @@ class GroundtrackGUI(tk.Tk):
                 args += ["--extra-output-address", result["address"]]
             else:
                 args += ["--extra-output-port", result["port"]]
+            if result["protocol"] == "tcp_bridge":
+                args += ["--extra-output-bridge-port", result["bridge_port"]]
             returncode, output = self.run_cmd(args)
             if returncode == 0:
                 sat = next(s for s in load_satellites() if s["name"] == name)

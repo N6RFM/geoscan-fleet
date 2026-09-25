@@ -37,6 +37,11 @@ Usage:
         --extra-output-block zeromq_pub_msg_sink_0 \\
         --extra-output-address tcp://127.0.0.1:5556
 
+    python3 edit_satellite.py NAME --extra-output-name ssdv_viewer \\
+        --extra-output-protocol tcp_bridge \\
+        --extra-output-block network_socket_pdu_0 \\
+        --extra-output-port 9985 --extra-output-bridge-port 19985
+
     python3 edit_satellite.py NAME --remove-extra-output ssdv_viewer
 """
 
@@ -62,12 +67,17 @@ def main():
 
     ap.add_argument("--extra-output-name", default=None,
                      help="add/replace an extra_outputs entry with this name")
-    ap.add_argument("--extra-output-protocol", choices=["tcp_server", "tcp_client", "zeromq_pub"],
+    ap.add_argument("--extra-output-protocol",
+                     choices=["tcp_server", "tcp_client", "tcp_bridge", "zeromq_pub"],
                      default=None)
     ap.add_argument("--extra-output-block", default=None,
                      help="the block's exact name in the .grc, e.g. network_socket_pdu_0")
     ap.add_argument("--extra-output-port", type=int, default=None,
-                     help="for tcp_server/tcp_client protocols")
+                     help="for tcp_server/tcp_client/tcp_bridge protocols - the "
+                          "flowgraph's own port")
+    ap.add_argument("--extra-output-bridge-port", type=int, default=None,
+                     help="for tcp_bridge only - what the real downstream consumer "
+                          "connects to (tcp_bridge.py sits between it and --extra-output-port)")
     ap.add_argument("--extra-output-address", default=None,
                      help="for zeromq_pub protocol, e.g. tcp://127.0.0.1:5556")
     ap.add_argument("--remove-extra-output", default=None, metavar="NAME",
@@ -138,8 +148,12 @@ def main():
                       "--extra-output-block too")
         if args.extra_output_protocol == "zeromq_pub" and not args.extra_output_address:
             sys.exit("protocol zeromq_pub needs --extra-output-address")
-        if args.extra_output_protocol in ("tcp_server", "tcp_client") and args.extra_output_port is None:
+        if args.extra_output_protocol in ("tcp_server", "tcp_client", "tcp_bridge") \
+                and args.extra_output_port is None:
             sys.exit(f"protocol {args.extra_output_protocol} needs --extra-output-port")
+        if args.extra_output_protocol == "tcp_bridge" and args.extra_output_bridge_port is None:
+            sys.exit("protocol tcp_bridge also needs --extra-output-bridge-port - "
+                      "that's what the real downstream consumer connects to")
 
         entry = {
             "name": args.extra_output_name,
@@ -150,6 +164,8 @@ def main():
             entry["address"] = args.extra_output_address
         else:
             entry["port"] = args.extra_output_port
+        if args.extra_output_protocol == "tcp_bridge":
+            entry["bridge_port"] = args.extra_output_bridge_port
 
         existing = sat.setdefault("extra_outputs", [])
         replaced = False

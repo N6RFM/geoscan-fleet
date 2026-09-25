@@ -34,6 +34,8 @@ by a divider:
 | Edit selected | `edit_satellite.py NAME` with whichever fields you changed - see below |
 | Enable / Disable selected | `toggle_satellite.py --enable/--disable NAME` |
 | Regenerate .grc for selected | `grcc flowgraphs/<name>.grc` |
+| Vet selected .grc | `vet_grc.py flowgraphs/<name>.grc` - read-only, shown in the output pane |
+| Vet --fix selected .grc | `vet_grc.py --fix flowgraphs/<name>.grc` - confirms first (this one writes to the `.grc`), then shows the diff in the output pane |
 | Delete selected | `delete_satellite.py NAME --yes` |
 
 Both **Add satellite...** and **Edit selected** open a real form, not a
@@ -75,22 +77,29 @@ fields above it (NORAD, frequency, ports, enabled). This is called out
 directly in the dialog since it's a real, easy thing to miss otherwise.
 
 **Add output...** opens a small sub-form: a name, a protocol dropdown
-(`tcp_server` / `tcp_client` / `zeromq_pub`), the block's exact name in
-the `.grc`, and a port-or-address field that relabels itself and
-pre-fills a sensible default depending on which protocol is selected.
+(`tcp_server` / `tcp_client` / `tcp_bridge` / `zeromq_pub`), the block's
+exact name in the `.grc`, and a port-or-address field that relabels
+itself and pre-fills a sensible default depending on which protocol is
+selected. Choosing `tcp_bridge` also reveals a second field, **Bridge
+port**, since that protocol needs both the flowgraph's own port and the
+separate port the real downstream consumer should connect to - see "The
+tcp_bridge" in `README.md` for why a `TCP_SERVER` flowgraph needs this
+extra step where the other three protocols don't.
 
 At the top of that sub-form is a **"Copy from existing output"**
 dropdown, listing every `extra_outputs` entry across every satellite
-currently configured (e.g. `ASRTU-1_SSDV: ssdv_viewer (tcp_server, port
-9985)`). Picking one pre-fills protocol, block, and port/address from
-that entry as a starting point - the new output's own name is left
-blank, since that should be specific to the satellite you're adding it
-to, not copied verbatim. This exists because satellites that need
-`extra_outputs` tend to come in families sharing the same downstream app
-and connection shape (ASRTU-1_SSDV and BY70-4 both feed the same SSDV
-viewer and telemetry upload agent, for instance) - once one satellite's
-outputs are set up correctly, the next one shouldn't need retyping
-protocol/block conventions from scratch.
+currently configured (e.g. `ASRTU-1_SSDV: ssdv_viewer (tcp_bridge, port
+9985, bridge 19985)`). Picking one pre-fills protocol, block, and
+port/address (and bridge port, for `tcp_bridge`) from that entry as a
+starting point - the new output's own name is left blank, since that
+should be specific to the satellite you're adding it to, not copied
+verbatim. This exists because satellites that need `extra_outputs` tend
+to come in families sharing the same downstream app and connection shape
+(ASRTU-1_SSDV and BY70-4 both feed the same SSDV viewer and telemetry
+upload agent, sharing the same `bridge_port` since only one of them is
+ever actually transmitting at a time) - once one satellite's outputs are
+set up correctly, the next one shouldn't need retyping protocol/block
+conventions from scratch.
 
 `edit_satellite.py --extra-output-name NAME ...` only ever touches
 `satellites.yaml`. If the `.grc`'s actual block (its name, port, or
@@ -104,6 +113,8 @@ GUI has no way to provide:
 
 - **`relay.py`** - a persistent process, meant to be started once and
   left running for an entire session
+- **`tcp_bridge.py`** - same reasoning, for satellites whose flowgraph
+  runs its own `TCP_SERVER` instead of connecting out as a client
 - **`run_passes.py`** - waits indefinitely for AOS and keeps running
   until you stop it
 - **`plan_passes.py --interactive`** - prompts for a y/n answer per pass
@@ -113,7 +124,7 @@ Running any of these the same way as `preflight.py` (a blocking,
 output-captured subprocess call) would freeze the entire GUI - Tkinter's
 event loop can't do anything else while waiting on a process that never
 finishes, and it has no way to type an answer into one that's waiting on
-stdin. Instead, these three are launched as fully detached processes in
+stdin. Instead, these four are launched as fully detached processes in
 their own terminal window (`gnome-terminal`, `konsole`,
 `xfce4-terminal`, `x-terminal-emulator`, or `xterm` - whichever is found
 first), so you can watch live output and Ctrl-C them independently of
@@ -142,11 +153,13 @@ later, if that becomes worth doing.
 |---|---|
 | Run preflight.py (full check) | exactly that, captured and shown in the output pane |
 | Run doctor.py | exactly that |
+| Run doctor.py --fix | actually removes/moves stray compiled files it finds, rather than just printing the commands |
 | Run update_tle.py | `update_tle.py` with no extra flags - it auto-detects every configured satellite not covered by the base Celestrak groups and fetches those individually on its own, every run, regardless of what's passed on the command line |
 | Show schedule | `show_queue.py` |
 | Plan passes (auto-approve) | prompts for hours-ahead, then `plan_passes.py --hours N` |
 | Plan passes (interactive, new window) | same prompt, then `plan_passes.py --hours N --interactive` in its own terminal (see above) |
-| Start relay.py / Start run_passes.py (new window) | `relay.py --verbose` / `run_passes.py --verbose`, each in its own terminal |
+| Start relay.py / Start tcp_bridge.py (new window) | `relay.py --verbose` / `tcp_bridge.py --verbose`, each in its own terminal |
+| Start run_passes.py (new window) | `run_passes.py --verbose`, in its own terminal |
 
 Every captured (non-terminal) Python subprocess call runs with `-u`
 (unbuffered), inserted automatically by `run_cmd()`. Without it, a
