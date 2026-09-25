@@ -66,7 +66,7 @@ blocks:
     coordinate: [193, 7]
     rotation: 0
     state: enabled
-- name: analog_sig_source_x_0_0
+- name: analog_sig_source_x_0
   id: analog_sig_source_x
   parameters:
     affinity: ''
@@ -89,7 +89,7 @@ blocks:
     coordinate: [88, 416.0]
     rotation: 0
     state: enabled
-- name: blocks_multiply_xx_1
+- name: blocks_multiply_x0_0
   id: blocks_multiply_xx
   parameters:
     affinity: ''
@@ -166,7 +166,7 @@ blocks:
     affinity: ''
     alias: ''
     autostartFreqChange: 'False'
-    basedir: /home/bob/Desktop
+    basedir: /home/bob/Desktop/IQ_Files/
     basefile: geoscan3
     bits_per_sample: '8'
     comment: ''
@@ -802,7 +802,7 @@ blocks:
     alias: ''
     append: 'True'
     comment: ''
-    file: /home/bob/Desktop/GEOSCAN-3.kss
+    file: /home/bob/Desktop/KSS_Files/GEOSCAN-3.kss
     options: '""'
   states:
     bus_sink: false
@@ -870,13 +870,13 @@ blocks:
     state: enabled
 
 connections:
-- [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
-- [blocks_multiply_xx_1, '0', low_pass_filter_0, '0']
+- [analog_sig_source_x_0, '0', blocks_multiply_x0_0, '1']
+- [blocks_multiply_x0_0, '0', low_pass_filter_0, '0']
 - [epy_block_0, out, network_socket_pdu_0, pdus]
 - [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
 - [low_pass_filter_0, '0', qtgui_waterfall_sink_x_0, '0']
 - [low_pass_filter_0, '0', satellites_satellite_decoder_0, '0']
-- [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
+- [osmosdr_source_0, '0', blocks_multiply_x0_0, '0']
 - [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
 - [satellites_print_timestamp_0, out, satellites_hexdump_sink_0, in]
 - [satellites_satellite_decoder_0, out, epy_block_0, in]

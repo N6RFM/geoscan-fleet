@@ -66,7 +66,7 @@ blocks:
     coordinate: [185, 7]
     rotation: 0
     state: enabled
-- name: analog_sig_source_x_0_0
+- name: analog_sig_source_x_0
   id: analog_sig_source_x
   parameters:
     affinity: ''
@@ -89,7 +89,7 @@ blocks:
     coordinate: [80, 424.0]
     rotation: 0
     state: enabled
-- name: blocks_multiply_xx_1
+- name: blocks_multiply_x_0
   id: blocks_multiply_xx
   parameters:
     affinity: ''
@@ -104,7 +104,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [376, 392.0]
+    coordinate: [376, 376.0]
     rotation: 0
     state: enabled
 - name: filerepeater_AdvFileSink_0
@@ -113,7 +113,7 @@ blocks:
     affinity: ''
     alias: ''
     autostartFreqChange: 'False'
-    basedir: /home/bob/Desktop/
+    basedir: /home/bob/Desktop/IQ_Files/
     basefile: JAMX01_BPSK_435.275M
     bits_per_sample: '8'
     comment: ''
@@ -131,7 +131,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [928, 284.0]
+    coordinate: [920, 300.0]
     rotation: 0
     state: enabled
 - name: filerepeater_TimeOfDay_0_0_1_0
@@ -208,8 +208,8 @@ blocks:
     alias: ''
     beta: '6.76'
     comment: ''
-    cutoff_freq: '500000'
-    decim: '1'
+    cutoff_freq: '50000'
+    decim: '50'
     gain: '1'
     interp: '1'
     maxoutbuf: '0'
@@ -222,7 +222,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [688, 156.0]
+    coordinate: [624, 236.0]
     rotation: 0
     state: true
 - name: nfreq
@@ -252,7 +252,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1200, 120.0]
+    coordinate: [1208, 144.0]
     rotation: 0
     state: true
 - name: offset
@@ -709,26 +709,6 @@ blocks:
     coordinate: [928, 160.0]
     rotation: 0
     state: disabled
-- name: rational_resampler_xxx_0
-  id: rational_resampler_xxx
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    decim: '25'
-    fbw: '0'
-    interp: '10'
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    taps: '[]'
-    type: ccc
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [504, 296.0]
-    rotation: 0
-    state: enabled
 - name: rig_freq_poller_0
   id: epy_block
   parameters:
@@ -770,12 +750,11 @@ blocks:
     state: enabled
 
 connections:
-- [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
-- [blocks_multiply_xx_1, '0', rational_resampler_xxx_0, '0']
+- [analog_sig_source_x_0, '0', blocks_multiply_x_0, '1']
+- [blocks_multiply_x_0, '0', low_pass_filter_0, '0']
 - [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
 - [low_pass_filter_0, '0', qtgui_waterfall_sink_x_0, '0']
-- [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
-- [rational_resampler_xxx_0, '0', low_pass_filter_0, '0']
+- [osmosdr_source_0, '0', blocks_multiply_x_0, '0']
 - [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
 
 metadata:

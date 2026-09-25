@@ -66,7 +66,7 @@ blocks:
     coordinate: [193, 7]
     rotation: 0
     state: enabled
-- name: analog_sig_source_x_0_0
+- name: analog_sig_source_x_0
   id: analog_sig_source_x
   parameters:
     affinity: ''
@@ -86,10 +86,10 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [80, 420.0]
+    coordinate: [88, 476.0]
     rotation: 0
     state: enabled
-- name: blocks_multiply_xx_1
+- name: blocks_multiply_x_0
   id: blocks_multiply_xx
   parameters:
     affinity: ''
@@ -113,7 +113,7 @@ blocks:
     affinity: ''
     alias: ''
     autostartFreqChange: 'False'
-    basedir: /home/bob/Desktop/
+    basedir: /home/bob/Desktop/IQ_Files/
     basefile: ASRTU-1_beam_SSDV
     bits_per_sample: '8'
     comment: ''
@@ -723,7 +723,7 @@ blocks:
     alias: ''
     append: 'True'
     comment: ''
-    file: /home/bob/Desktop/ASRTU1_beam_SSDV.kss
+    file: /home/bob/Desktop/KSS_Files/ASRTU1.kss
     options: '""'
   states:
     bus_sink: false
@@ -789,13 +789,13 @@ blocks:
     state: enabled
 
 connections:
-- [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
-- [blocks_multiply_xx_1, '0', low_pass_filter_0, '0']
+- [analog_sig_source_x_0, '0', blocks_multiply_x_0, '1']
+- [blocks_multiply_x_0, '0', low_pass_filter_0, '0']
 - [lilacsat_attach_preamble_and_tailer_0, out, network_socket_pdu_0, pdus]
 - [lilacsat_attach_preamble_and_tailer_0, out, zeromq_pub_msg_sink_0, in]
 - [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
 - [low_pass_filter_0, '0', satellites_satellite_decoder_0, '0']
-- [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
+- [osmosdr_source_0, '0', blocks_multiply_x_0, '0']
 - [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
 - [satellites_print_timestamp_0, out, satellites_hexdump_sink_0, in]
 - [satellites_satellite_decoder_0, out, lilacsat_attach_preamble_and_tailer_0, in]
