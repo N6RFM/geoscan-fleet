@@ -162,25 +162,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1368, 16.0]
-    rotation: 0
-    state: true
-- name: gpredict_doppler_0
-  id: gpredict_doppler
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    gpredict_host: 127.0.0.1
-    gpredict_port: gpredict_port
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    verbose: 'False'
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [1064, 8.0]
+    coordinate: [1288, 56.0]
     rotation: 0
     state: true
 - name: gpredict_port
@@ -678,14 +660,53 @@ blocks:
     coordinate: [760, 136.0]
     rotation: 0
     state: disabled
+- name: rig_freq_poller_0
+  id: epy_block
+  parameters:
+    _source_code: "import threading, time, socket\nfrom gnuradio import gr\nimport\
+      \ pmt\n\nclass blk(gr.basic_block):\n    def __init__(self, rig_host='127.0.0.1',\
+      \ rig_port=4532, poll_interval_s=0.5):\n        gr.basic_block.__init__(self,\
+      \ name='rig_freq_poller', in_sig=None, out_sig=None)\n        self.message_port_register_out(pmt.intern('freq'))\n\
+      \        self.rig_host = rig_host\n        self.rig_port = rig_port\n      \
+      \  self.poll_interval_s = poll_interval_s\n        self._stop = threading.Event()\n\
+      \        self._thread = threading.Thread(target=self._loop, daemon=True)\n\n\
+      \    def start(self):\n        self._thread.start()\n        return True\n\n\
+      \    def stop(self):\n        self._stop.set()\n        return True\n\n    def\
+      \ _loop(self):\n        sock = None\n        last = None\n        while not\
+      \ self._stop.is_set():\n            try:\n                if sock is None:\n\
+      \                    sock = socket.create_connection((self.rig_host, self.rig_port),\
+      \ timeout=2)\n                sock.sendall(b'f\\n')\n                freq =\
+      \ float(sock.recv(64).decode().strip())\n                if freq != last:\n\
+      \                    last = freq\n                    self.message_port_pub(pmt.intern('freq'),\n\
+      \                                           pmt.cons(pmt.intern('freq'), pmt.from_double(freq)))\n\
+      \            except (OSError, ValueError):\n                sock = None\n  \
+      \          time.sleep(self.poll_interval_s)\n"
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    poll_interval_s: '0.5'
+    rig_host: '''127.0.0.1'''
+    rig_port: '4532'
+  states:
+    _io_cache: ('rig_freq_poller', 'blk', [('rig_host', "'127.0.0.1'"), ('rig_port',
+      '4532'), ('poll_interval_s', '0.5')], [], [('freq', 'message', 1)], '', ['poll_interval_s',
+      'rig_host', 'rig_port'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1056, 24.0]
+    rotation: 0
+    state: enabled
 
 connections:
 - [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
 - [blocks_multiply_xx_1, '0', low_pass_filter_0, '0']
-- [gpredict_doppler_0, freq, gpredict_MsgPairToVar_0, inpair]
 - [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
 - [low_pass_filter_0, '0', qtgui_waterfall_sink_x_0, '0']
 - [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
+- [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
 
 metadata:
   file_format: 1

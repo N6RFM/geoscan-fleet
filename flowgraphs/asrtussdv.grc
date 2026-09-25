@@ -28,11 +28,10 @@ options:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 8
-    - 8
+    coordinate: [8, 8]
     rotation: 0
     state: enabled
+
 blocks:
 - name: BFO
   id: variable_qtgui_range
@@ -52,9 +51,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 560
-    - 4.0
+    coordinate: [560, 4.0]
     rotation: 0
     state: true
 - name: samp_rate
@@ -66,9 +63,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 193
-    - 7
+    coordinate: [193, 7]
     rotation: 0
     state: enabled
 - name: analog_sig_source_x_0_0
@@ -91,9 +86,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 80
-    - 420.0
+    coordinate: [80, 420.0]
     rotation: 0
     state: enabled
 - name: blocks_multiply_xx_1
@@ -111,9 +104,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 336
-    - 344.0
+    coordinate: [336, 344.0]
     rotation: 0
     state: enabled
 - name: filerepeater_AdvFileSink_0
@@ -140,9 +131,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 664
-    - 268.0
+    coordinate: [664, 268.0]
     rotation: 0
     state: enabled
 - name: freq
@@ -159,9 +148,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 297
-    - 11
+    coordinate: [297, 11]
     rotation: 0
     state: enabled
 - name: gpredict_MsgPairToVar_0
@@ -175,29 +162,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 1400
-    - 4.0
-    rotation: 0
-    state: true
-- name: gpredict_doppler_0
-  id: gpredict_doppler
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    gpredict_host: 127.0.0.1
-    gpredict_port: gpredict_port
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    verbose: 'False'
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate:
-    - 1088
-    - 8.0
+    coordinate: [1344, 40.0]
     rotation: 0
     state: true
 - name: gpredict_port
@@ -214,9 +179,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 416
-    - 12
+    coordinate: [416, 12]
     rotation: 0
     state: enabled
 - name: lilacsat_attach_preamble_and_tailer_0
@@ -234,9 +197,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 960
-    - 328.0
+    coordinate: [960, 328.0]
     rotation: 0
     state: enabled
 - name: low_pass_filter_0
@@ -260,9 +221,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 400
-    - 132.0
+    coordinate: [400, 132.0]
     rotation: 0
     state: enabled
 - name: network_socket_pdu_0
@@ -282,9 +241,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 1232
-    - 264.0
+    coordinate: [1232, 264.0]
     rotation: 0
     state: enabled
 - name: nfreq
@@ -301,9 +258,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 902
-    - 9
+    coordinate: [902, 9]
     rotation: 0
     state: enabled
 - name: note_0
@@ -316,24 +271,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 1408
-    - 280.0
-    rotation: 0
-    state: true
-- name: note_1
-  id: note
-  parameters:
-    alias: ''
-    comment: ''
-    note: NOTE 4531
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate:
-    - 1344
-    - 60.0
+    coordinate: [1408, 280.0]
     rotation: 0
     state: true
 - name: note_1_0
@@ -346,9 +284,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 72
-    - 116.0
+    coordinate: [72, 116.0]
     rotation: 0
     state: true
 - name: offset
@@ -365,9 +301,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 712
-    - 12.0
+    coordinate: [712, 12.0]
     rotation: 0
     state: enabled
 - name: osmosdr_source_0
@@ -726,9 +660,46 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 72
-    - 172.0
+    coordinate: [72, 172.0]
+    rotation: 0
+    state: enabled
+- name: rig_freq_poller_0
+  id: epy_block
+  parameters:
+    _source_code: "import threading, time, socket\nfrom gnuradio import gr\nimport\
+      \ pmt\n\nclass blk(gr.basic_block):\n    def __init__(self, rig_host='127.0.0.1',\
+      \ rig_port=4532, poll_interval_s=0.5):\n        gr.basic_block.__init__(self,\
+      \ name='rig_freq_poller', in_sig=None, out_sig=None)\n        self.message_port_register_out(pmt.intern('freq'))\n\
+      \        self.rig_host = rig_host\n        self.rig_port = rig_port\n      \
+      \  self.poll_interval_s = poll_interval_s\n        self._stop = threading.Event()\n\
+      \        self._thread = threading.Thread(target=self._loop, daemon=True)\n\n\
+      \    def start(self):\n        self._thread.start()\n        return True\n\n\
+      \    def stop(self):\n        self._stop.set()\n        return True\n\n    def\
+      \ _loop(self):\n        sock = None\n        last = None\n        while not\
+      \ self._stop.is_set():\n            try:\n                if sock is None:\n\
+      \                    sock = socket.create_connection((self.rig_host, self.rig_port),\
+      \ timeout=2)\n                sock.sendall(b'f\\n')\n                freq =\
+      \ float(sock.recv(64).decode().strip())\n                if freq != last:\n\
+      \                    last = freq\n                    self.message_port_pub(pmt.intern('freq'),\n\
+      \                                           pmt.cons(pmt.intern('freq'), pmt.from_double(freq)))\n\
+      \            except (OSError, ValueError):\n                sock = None\n  \
+      \          time.sleep(self.poll_interval_s)\n"
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    poll_interval_s: '0.5'
+    rig_host: '''127.0.0.1'''
+    rig_port: '4532'
+  states:
+    _io_cache: ('rig_freq_poller', 'blk', [('rig_host', "'127.0.0.1'"), ('rig_port',
+      '4532'), ('poll_interval_s', '0.5')], [], [('freq', 'message', 1)], '', ['poll_interval_s',
+      'rig_host', 'rig_port'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1120, 0.0]
     rotation: 0
     state: enabled
 - name: satellites_hexdump_sink_0
@@ -742,12 +713,10 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 1288
-    - 136.0
+    coordinate: [1288, 136.0]
     rotation: 0
     state: enabled
-- name: satellites_kiss_file_sink_0_0
+- name: satellites_kiss_file_sink_0
   id: satellites_kiss_file_sink
   parameters:
     affinity: ''
@@ -760,9 +729,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 976
-    - 208.0
+    coordinate: [976, 208.0]
     rotation: 0
     state: enabled
 - name: satellites_print_timestamp_0
@@ -779,9 +746,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 984
-    - 120.0
+    coordinate: [984, 120.0]
     rotation: 0
     state: enabled
 - name: satellites_satellite_decoder_0
@@ -803,9 +768,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 688
-    - 124.0
+    coordinate: [688, 124.0]
     rotation: 0
     state: enabled
 - name: zeromq_pub_msg_sink_0
@@ -821,60 +784,24 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate:
-    - 1232
-    - 424.0
+    coordinate: [1232, 424.0]
     rotation: 0
     state: enabled
+
 connections:
-- - analog_sig_source_x_0_0
-  - '0'
-  - blocks_multiply_xx_1
-  - '1'
-- - blocks_multiply_xx_1
-  - '0'
-  - low_pass_filter_0
-  - '0'
-- - gpredict_doppler_0
-  - freq
-  - gpredict_MsgPairToVar_0
-  - inpair
-- - lilacsat_attach_preamble_and_tailer_0
-  - out
-  - network_socket_pdu_0
-  - pdus
-- - lilacsat_attach_preamble_and_tailer_0
-  - out
-  - zeromq_pub_msg_sink_0
-  - in
-- - low_pass_filter_0
-  - '0'
-  - filerepeater_AdvFileSink_0
-  - '0'
-- - low_pass_filter_0
-  - '0'
-  - satellites_satellite_decoder_0
-  - '0'
-- - osmosdr_source_0
-  - '0'
-  - blocks_multiply_xx_1
-  - '0'
-- - satellites_print_timestamp_0
-  - out
-  - satellites_hexdump_sink_0
-  - in
-- - satellites_satellite_decoder_0
-  - out
-  - lilacsat_attach_preamble_and_tailer_0
-  - in
-- - satellites_satellite_decoder_0
-  - out
-  - satellites_kiss_file_sink_0_0
-  - in
-- - satellites_satellite_decoder_0
-  - out
-  - satellites_print_timestamp_0
-  - in
+- [analog_sig_source_x_0_0, '0', blocks_multiply_xx_1, '1']
+- [blocks_multiply_xx_1, '0', low_pass_filter_0, '0']
+- [lilacsat_attach_preamble_and_tailer_0, out, network_socket_pdu_0, pdus]
+- [lilacsat_attach_preamble_and_tailer_0, out, zeromq_pub_msg_sink_0, in]
+- [low_pass_filter_0, '0', filerepeater_AdvFileSink_0, '0']
+- [low_pass_filter_0, '0', satellites_satellite_decoder_0, '0']
+- [osmosdr_source_0, '0', blocks_multiply_xx_1, '0']
+- [rig_freq_poller_0, freq, gpredict_MsgPairToVar_0, inpair]
+- [satellites_print_timestamp_0, out, satellites_hexdump_sink_0, in]
+- [satellites_satellite_decoder_0, out, lilacsat_attach_preamble_and_tailer_0, in]
+- [satellites_satellite_decoder_0, out, satellites_kiss_file_sink_0, in]
+- [satellites_satellite_decoder_0, out, satellites_print_timestamp_0, in]
+
 metadata:
   file_format: 1
   grc_version: 3.10.9.2
