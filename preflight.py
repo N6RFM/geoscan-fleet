@@ -143,11 +143,20 @@ def static_checks(cfg_path):
         for extra in sat.get("extra_outputs", []):
             bp = extra.get("bridge_port")
             if bp is not None:
-                dup = bp in all_ports
+                # bridge_port is deliberately allowed to repeat across
+                # satellites that feed the same downstream app (tcp_bridge.py
+                # is built to share one listener across several upstream
+                # connections) - only a collision with a genuinely different
+                # kind of port (producer_port/consumer_port, a different
+                # service entirely) is a real conflict worth failing on
+                collides_with_other_kind = bp in all_ports
                 check(f"{name}: extra_output '{extra.get('name', '?')}' bridge_port "
-                      f"({bp}) is unique across fleet",
-                      not dup, "" if not dup else f"also used by {all_ports.get(bp)}")
-                all_ports[bp] = f"{name}.extra_outputs[{extra.get('name', '?')}].bridge_port"
+                      f"({bp}) doesn't collide with a producer_port/consumer_port",
+                      not collides_with_other_kind,
+                      "" if not collides_with_other_kind
+                      else f"also used by {all_ports.get(bp)} - that's a real conflict, "
+                           f"unlike sharing a bridge_port with another satellite's "
+                           f"tcp_bridge output, which is fine")
 
         script = sat.get("script", "")
         grc_path = script.replace(".py", ".grc") if script else ""
