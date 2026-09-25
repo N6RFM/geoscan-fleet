@@ -1012,7 +1012,12 @@ Start it once at the beginning of a session and leave it running:
 ```
 python3 tcp_bridge.py --verbose
 ```
-Disabled satellites are skipped entirely, same as `relay.py`.
+Disabled satellites are skipped entirely, same as `relay.py`. In
+`--verbose` mode, a retry that's failing repeatedly (normal between
+passes, while the flowgraph isn't running) only logs its first attempt
+and then an occasional "still waiting" heartbeat roughly once a minute -
+not every single retry, which would otherwise flood the terminal for
+however long the satellite is off the schedule.
 
 **Multiple satellites can share one `bridge_port`** if they feed the
 same downstream app - `ASRTU-1_SSDV` and `BY70-4` both do, since they
@@ -1027,12 +1032,22 @@ improvement over separate ports, not just a shortcut: the downstream app
 never needs its connection settings changed depending on which
 satellite is about to pass.
 
-One honest limitation, not eliminated by this design: if two satellites
-sharing a `bridge_port` were somehow *both* live at once (shouldn't
-happen given the single-SDR constraint `run_passes.py` enforces), their
-frames would interleave on the same downstream connection with no way
-to tell them apart. That's an accepted tradeoff given how the fleet
-actually operates, not a risk this design pretends doesn't exist.
+**The real limitation this doesn't eliminate, confirmed the hard way**:
+TCP has no concept of satellite identity, only ports. If two satellites
+share an upstream `port` (not just `bridge_port`) - as `ASRTU-1_SSDV`
+and `BY70-4` also do, both listening on `9985` - `tcp_bridge.py` cannot
+verify that whatever accepted a connection on that port is actually the
+satellite it thinks it's talking to. This isn't just a theoretical
+both-somehow-live-at-once edge case; it showed up immediately in
+ordinary manual testing, when only one flowgraph was intentionally
+running and *both* satellites' upstream connections reported success -
+because both really did connect to the one thing listening on `9985`,
+regardless of which satellite's name was attached to that connection.
+`tcp_bridge.py` prints a one-time warning at startup when it detects two
+satellites sharing an upstream port, precisely because this can't be
+caught any other way - verifying the right flowgraph is actually running
+for whichever pass is active is entirely on you and `run_passes.py`, not
+something a TCP-level bridge can ever check on its own.
 
 Same as `relay.py`, `tcp_bridge.py` is one-directional and has zero
 protocol awareness - it doesn't parse or care what's inside the bytes,
