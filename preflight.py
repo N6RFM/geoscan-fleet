@@ -140,6 +140,15 @@ def static_checks(cfg_path):
                       not dup, "" if not dup else f"also used by {all_ports.get(p)}")
                 all_ports[p] = f"{name}.{port_field}"
 
+        for extra in sat.get("extra_outputs", []):
+            bp = extra.get("bridge_port")
+            if bp is not None:
+                dup = bp in all_ports
+                check(f"{name}: extra_output '{extra.get('name', '?')}' bridge_port "
+                      f"({bp}) is unique across fleet",
+                      not dup, "" if not dup else f"also used by {all_ports.get(bp)}")
+                all_ports[bp] = f"{name}.extra_outputs[{extra.get('name', '?')}].bridge_port"
+
         script = sat.get("script", "")
         grc_path = script.replace(".py", ".grc") if script else ""
         py_exists = os.path.exists(script) if script else False
@@ -245,7 +254,7 @@ def check_extra_outputs(name, blocks, sat):
             check(f"{name}: extra_output '{out_name}' address matches satellites.yaml",
                   grc_addr == extra.get("address"),
                   f".grc={grc_addr}  yaml={extra.get('address')}")
-        elif protocol in ("tcp_server", "tcp_client"):
+        elif protocol in ("tcp_server", "tcp_client", "tcp_bridge"):
             grc_port = block["parameters"].get("port")
             try:
                 port_match = int(grc_port) == int(extra.get("port"))
@@ -253,14 +262,23 @@ def check_extra_outputs(name, blocks, sat):
                 port_match = False
             check(f"{name}: extra_output '{out_name}' port matches satellites.yaml",
                   port_match, f".grc={grc_port}  yaml={extra.get('port')}")
-            expected_type = "TCP_SERVER" if protocol == "tcp_server" else "TCP_CLIENT"
+            # tcp_bridge's underlying .grc block is always a TCP_SERVER -
+            # tcp_bridge.py is the one that connects out to it as a client, not
+            # the flowgraph itself
+            expected_type = "TCP_CLIENT" if protocol == "tcp_client" else "TCP_SERVER"
             grc_type = block["parameters"].get("type", "")
             check(f"{name}: extra_output '{out_name}' type is {expected_type}",
                   expected_type in str(grc_type), f"got {grc_type!r}")
+            if protocol == "tcp_bridge":
+                check(f"{name}: extra_output '{out_name}' has bridge_port set",
+                      "bridge_port" in extra,
+                      "tcp_bridge needs a bridge_port - that's what the real "
+                      "downstream consumer should connect to, since tcp_bridge.py "
+                      "sits between it and the flowgraph's own TCP_SERVER")
         else:
             check(f"{name}: extra_output '{out_name}' has a recognized protocol",
                   False, f"unknown protocol {protocol!r} - expected zeromq_pub, "
-                         f"tcp_server, or tcp_client")
+                         f"tcp_server, tcp_client, or tcp_bridge")
 
 
 def live_check(cfg, only=None, duration=8):
