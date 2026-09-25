@@ -44,22 +44,48 @@ near the end if something doesn't come back clean.
 
 ## How the pieces fit together
 
-Every satellite follows the same pipeline, worth understanding before
-the sections below dive into each piece individually:
+Every satellite runs a GNU Radio flowgraph - that part's universal.
+Everything after it is optional and varies per satellite; no single
+downstream tool is required for all of them:
 
 ```
-GNU Radio flowgraph  --->  relay.py  --->  SatsDecoder
-(one process per pass,      (one long-       (stays open,
- launched fresh at AOS       running          one tab per
- by run_passes.py,           process per      satellite,
- exits at LOS)               satellite,       connected once)
-                              started once
-                              per session -
-                              only for
-                              satellites
-                              configured
-                              to use it)
+GNU Radio flowgraph
+(one process per pass, launched fresh
+ at AOS by run_passes.py, exits at LOS)
+        |
+        |-- decode-and-relay satellites (GEOSCAN-1..6) --------------------
+        |     |
+        |     v
+        |   relay.py                        SatsDecoder
+        |   (one long-running process   --> (stays open, one tab per
+        |    per satellite, started         satellite, connected once -
+        |    once per session - only        this is what GEOSCAN happens
+        |    for satellites configured       to feed; a different relay-
+        |    to use it)                       using satellite could feed
+        |                                     a different decoder entirely,
+        |                                     since relay.py is protocol-
+        |                                     agnostic - see below)
+        |
+        |-- direct-connection satellites (ASRTU-1_SSDV, BY70-4) -----------
+        |     |
+        |     v
+        |   extra_outputs: TCP/ZeroMQ straight to whatever app is
+        |   listening (an SSDV image viewer, a telemetry upload agent) -
+        |   relay.py never involved at all
+        |
+        |-- recording-only satellites (SCIONX) -----------------------------
+              |
+              v
+            raw IQ to disk only - no relay, no live decoder, no
+            extra_outputs, nothing downstream but a file
 ```
+
+Both `relay.py` and any live downstream decoder are per-satellite
+choices, not fixed parts of the architecture - and even among satellites
+that *do* use `relay.py`, `SatsDecoder` specifically is just what
+GEOSCAN's flowgraphs happen to feed today, not something the toolkit
+requires. A different relay-using satellite could just as easily feed an
+entirely different decoder application.
 
 **The flowgraph** is generated per satellite from that satellite's
 `.grc` file. For satellites with a decoder, it demodulates the live
@@ -74,12 +100,16 @@ satellites configured to use one. For GEOSCAN, that's
 [SatsDecoder](https://github.com/baskiton/SatsDecoder) - an existing,
 general-purpose open-source project, not something written for this
 project, and not a fixed part of this toolkit's architecture. It decodes
-frames for a wide range of amateur/university cubesats via YAML
-satellite definitions, and gives a persistent per-satellite tab with a
-live history of decoded frames over a KISS TCP link. It's what GEOSCAN's
-flowgraphs happen to feed today - not a requirement `relay.py` or
-anything else in this toolkit imposes. Earlier issues found in it during
-this project's development (a false-disconnect bug, and a KISS-timestamp
+frames for a range of amateur/university cubesat protocols - GEOSCAN,
+USP (Unified SPUTNIX), AX.25, and CSP (Cubesat Space Protocol) among
+them - via YAML satellite definitions, and gives a persistent
+per-satellite tab with a live history of decoded frames over a KISS TCP
+link. See [its own supported-protocols list](https://github.com/baskiton/SatsDecoder)
+for the full and current set, since it grows independently of this
+project. It's what GEOSCAN's flowgraphs happen to feed today - not a
+requirement `relay.py` or anything else in this toolkit imposes. Earlier
+issues found in it during this project's development (a false-disconnect
+bug, and a KISS-timestamp
 `OverflowError`) have both since been fixed in upstream's `nightly`
 branch - confirmed directly against commit `2112e3f` ("#7 catch
 overflow error when parsing KISS-timestamp"), sitting on top of the
