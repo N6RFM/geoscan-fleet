@@ -636,7 +636,7 @@ class GroundtrackGUI(tk.Tk):
             args = [sys.executable, "add_satellite.py", "--name", name,
                     "--norad", norad, "--freq", freq, "--min-elev", min_elev]
             if record_only_var.get():
-                args += ["--template", "flowgraphs/geoscan1.grc", "--record-only"]
+                args += ["--record-only"]
             else:
                 prod = fields["producer_port"].get().strip()
                 cons = fields["consumer_port"].get().strip()
