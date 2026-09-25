@@ -140,7 +140,14 @@ class UpstreamPump:
                     self.vlog(f"connecting upstream to {self.upstream_host}:{self.upstream_port} ...")
                 reader, writer = await asyncio.open_connection(
                     self.upstream_host, self.upstream_port)
-                self.log(f"connected upstream to {self.upstream_host}:{self.upstream_port}")
+                self.log(f"connected to {self.upstream_host}:{self.upstream_port} - "
+                         f"NOTE: this only means something accepted the connection on "
+                         f"that port, not that it's actually {self.name.split(':')[0]}'s "
+                         f"own flowgraph. TCP has no concept of satellite identity - if a "
+                         f"different satellite happens to be running on this same port, "
+                         f"this bridge relays its data under this name with no way to "
+                         f"detect the mismatch. Verify manually which flowgraph is "
+                         f"actually running before trusting this.")
                 attempt = 0
                 while True:
                     data = await reader.read(65536)
