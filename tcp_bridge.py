@@ -140,14 +140,7 @@ class UpstreamPump:
                     self.vlog(f"connecting upstream to {self.upstream_host}:{self.upstream_port} ...")
                 reader, writer = await asyncio.open_connection(
                     self.upstream_host, self.upstream_port)
-                self.log(f"connected to {self.upstream_host}:{self.upstream_port} - "
-                         f"NOTE: this only means something accepted the connection on "
-                         f"that port, not that it's actually {self.name.split(':')[0]}'s "
-                         f"own flowgraph. TCP has no concept of satellite identity - if a "
-                         f"different satellite happens to be running on this same port, "
-                         f"this bridge relays its data under this name with no way to "
-                         f"detect the mismatch. Verify manually which flowgraph is "
-                         f"actually running before trusting this.")
+                self.log(f"connected upstream to {self.upstream_host}:{self.upstream_port}")
                 attempt = 0
                 while True:
                     data = await reader.read(65536)
@@ -201,6 +194,22 @@ async def main():
         print("No enabled satellites configured with a tcp_bridge extra_output - "
               "nothing to do.", flush=True)
         return
+
+    # a short, one-time warning - only for upstream ports genuinely shared by
+    # more than one satellite, since that's the only case where TCP's lack of
+    # any "who are you" concept can actually cause a mismatch: whichever
+    # flowgraph happens to be running gets connected to and relayed under
+    # every name sharing that port, with no way to detect if the wrong one
+    # was left running
+    by_upstream_port = {}
+    for p in pumps:
+        by_upstream_port.setdefault(p.upstream_port, []).append(p.name)
+    for port, names in by_upstream_port.items():
+        if len(names) > 1:
+            print(f"NOTE: {', '.join(names)} all connect to upstream port {port} - "
+                  f"make sure only the right flowgraph is running for whichever "
+                  f"pass is active, since a bridge here can't tell them apart.",
+                  flush=True)
 
     tasks = []
     for bp, listener in listeners.items():
