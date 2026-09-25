@@ -171,23 +171,29 @@ class GroundtrackGUI(tk.Tk):
     def _build_actions(self):
         row1 = ttk.LabelFrame(self.content, text="Satellite management")
         row1.pack(fill="x", padx=8, pady=(4, 4))
-        ttk.Button(row1, text="Refresh", command=self.refresh).pack(side="left")
-        ttk.Button(row1, text="Add satellite...",
+
+        row1a = ttk.Frame(row1)
+        row1a.pack(fill="x", pady=(2, 2))
+        ttk.Button(row1a, text="Refresh", command=self.refresh).pack(side="left")
+        ttk.Button(row1a, text="Add satellite...",
                    command=self.add_satellite_dialog).pack(side="left", padx=4)
-        ttk.Button(row1, text="Edit selected",
+        ttk.Button(row1a, text="Edit selected",
                    command=self.edit_satellite_dialog).pack(side="left")
-        ttk.Button(row1, text="Enable selected",
+        ttk.Button(row1a, text="Enable selected",
                    command=lambda: self.toggle(True)).pack(side="left", padx=4)
-        ttk.Button(row1, text="Disable selected",
+        ttk.Button(row1a, text="Disable selected",
                    command=lambda: self.toggle(False)).pack(side="left")
-        ttk.Button(row1, text="Regenerate .grc for selected",
-                   command=self.regen_selected).pack(side="left", padx=4)
-        ttk.Button(row1, text="Vet selected .grc",
-                   command=self.vet_selected).pack(side="left")
-        ttk.Button(row1, text="Vet --fix selected .grc",
-                   command=self.vet_fix_selected).pack(side="left", padx=4)
-        ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Button(row1, text="Delete selected",
+
+        row1b = ttk.Frame(row1)
+        row1b.pack(fill="x", pady=(2, 2))
+        ttk.Button(row1b, text="Regenerate .grc for selected",
+                   command=self.regen_selected).pack(side="left")
+        ttk.Button(row1b, text="Vet selected .grc",
+                   command=self.vet_selected).pack(side="left", padx=4)
+        ttk.Button(row1b, text="Vet --fix selected .grc",
+                   command=self.vet_fix_selected).pack(side="left")
+        ttk.Separator(row1b, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(row1b, text="Delete selected",
                    command=self.delete_selected).pack(side="left")
 
         row2 = ttk.LabelFrame(self.content, text="Checks and maintenance")
