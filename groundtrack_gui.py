@@ -172,18 +172,19 @@ class GroundtrackGUI(tk.Tk):
         row1 = ttk.LabelFrame(self.content, text="Satellite management")
         row1.pack(fill="x", padx=8, pady=(4, 4))
         ttk.Button(row1, text="Refresh", command=self.refresh).pack(side="left")
+        ttk.Button(row1, text="Add satellite...",
+                   command=self.add_satellite_dialog).pack(side="left", padx=4)
+        ttk.Button(row1, text="Edit selected",
+                   command=self.edit_satellite_dialog).pack(side="left")
         ttk.Button(row1, text="Enable selected",
                    command=lambda: self.toggle(True)).pack(side="left", padx=4)
         ttk.Button(row1, text="Disable selected",
                    command=lambda: self.toggle(False)).pack(side="left")
-        ttk.Button(row1, text="Edit selected",
-                   command=self.edit_satellite_dialog).pack(side="left", padx=4)
         ttk.Button(row1, text="Regenerate .grc for selected",
                    command=self.regen_selected).pack(side="left", padx=4)
+        ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(row1, text="Delete selected",
                    command=self.delete_selected).pack(side="left")
-        ttk.Button(row1, text="Add satellite...",
-                   command=self.add_satellite_dialog).pack(side="left", padx=4)
 
         row2 = ttk.LabelFrame(self.content, text="Checks and maintenance")
         row2.pack(fill="x", padx=8, pady=4)
