@@ -1,15 +1,14 @@
-# groundtrack GUI (rough prototype)
+# groundtrack GUI
 
-`groundtrack_gui.py` is a simple Tkinter GUI over the existing
-command-line tools - a way to see the whole fleet at a glance and run
-common actions with a click, without needing to remember every script's
-exact flags.
+`groundtrack_gui.py` is a Tkinter GUI over the existing command-line
+tools - a way to see the whole fleet at a glance and manage satellites
+with a click, without needing to remember every script's exact flags.
 
-**It is explicitly a rough prototype, not a replacement for the CLI
-tools.** If it's ever abandoned, deleting `groundtrack_gui.py` and
-`delete_satellite.py` undoes the entire thing - nothing else in the repo
-depends on either file, and nothing about how the CLI tools work changes
-whether or not this GUI exists alongside them.
+**It's a layer on top of the CLI tools, not a replacement for them.** If
+it's ever abandoned, deleting `groundtrack_gui.py` undoes the entire
+thing - nothing else in the repo depends on it, and nothing about how
+the CLI tools work changes whether or not this GUI exists alongside
+them.
 
 ## The one rule everything else follows
 
@@ -22,18 +21,78 @@ things the GUI does entirely on its own are read-only: parsing
 `satellites.yaml` to build the table, and checking file existence/
 modification times for the "Gaps found" column.
 
-Concretely:
+## Satellite management
+
+Left to right, the buttons run roughly in workflow order - view, create,
+modify, toggle state, build, then the one destructive action set apart
+by a divider:
 
 | Button | What it actually runs |
 |---|---|
+| Refresh | (read-only - re-parses `satellites.yaml` and re-checks each satellite's files) |
+| Add satellite... | `add_satellite.py --name ... --norad ... --freq ...` (plus `--template`/`--record-only` if recording-only is checked, plus `--producer-port`/`--consumer-port` if you've overridden the suggested defaults) |
+| Edit selected | `edit_satellite.py NAME` with whichever fields you changed - see below |
 | Enable / Disable selected | `toggle_satellite.py --enable/--disable NAME` |
-| Delete selected | `delete_satellite.py NAME --yes` |
 | Regenerate .grc for selected | `grcc flowgraphs/<name>.grc` |
-| Add satellite... | `add_satellite.py --name ... --norad ... --freq ...` (plus `--template`/`--record-only` if you choose recording-only) |
-| Run preflight.py / doctor.py | exactly those, captured and shown in the output pane |
-| Run update_tle.py | `update_tle.py` with `--extra-catnr <norad>` appended for every currently configured satellite, so nothing needs the base Celestrak groups to happen to cover it |
-| Show schedule | `show_queue.py` |
-| Plan passes (auto-approve) | `plan_passes.py --hours N` |
+| Delete selected | `delete_satellite.py NAME --yes` |
+
+Both **Add satellite...** and **Edit selected** open a real form, not a
+chain of popups - every field visible at once, and critically, **a
+failure leaves the form open with everything you typed still there**
+rather than losing your input. `run_cmd()` returns `(returncode,
+output)` specifically so these dialogs can tell success from failure and
+only close themselves on success.
+
+## Editing a satellite
+
+**Edit selected** opens with the satellite's current values pre-filled:
+NORAD, frequency, min elevation, producer/consumer ports (if it uses the
+relay), and an Enabled checkbox. Changing NORAD or frequency also
+updates the matching blocks in the `.grc` automatically - the same thing
+`add_satellite.py` does when a satellite is first created - so
+`satellites.yaml` and the `.grc` can't quietly drift apart from each
+other. You still need to `grcc` the `.grc` afterward; the dialog says so
+if it changed anything there.
+
+### extra_outputs
+
+Some satellites have a second (or third) live output that a specific
+downstream app connects to directly, bypassing `relay.py` entirely - see
+`README.md`'s "Adding a satellite" section for the full rationale
+(`relay.py` is a plain TCP byte-forwarder; a protocol like ZeroMQ
+PUB/SUB already handles the connect/disconnect robustness it exists to
+provide for raw TCP, so there's no reason to route it through the
+relay).
+
+The Edit dialog shows a live list of the satellite's current
+`extra_outputs`, with **Add output...** and **Remove selected** buttons.
+Each one is its own `edit_satellite.py` call and takes effect
+immediately - separately from the **Save** button, which only covers the
+fields above it (NORAD, frequency, ports, enabled). This is called out
+directly in the dialog since it's a real, easy thing to miss otherwise.
+
+**Add output...** opens a small sub-form: a name, a protocol dropdown
+(`tcp_server` / `tcp_client` / `zeromq_pub`), the block's exact name in
+the `.grc`, and a port-or-address field that relabels itself and
+pre-fills a sensible default depending on which protocol is selected.
+
+At the top of that sub-form is a **"Copy from existing output"**
+dropdown, listing every `extra_outputs` entry across every satellite
+currently configured (e.g. `ASRTU-1_SSDV: ssdv_viewer (tcp_server, port
+9985)`). Picking one pre-fills protocol, block, and port/address from
+that entry as a starting point - the new output's own name is left
+blank, since that should be specific to the satellite you're adding it
+to, not copied verbatim. This exists because satellites that need
+`extra_outputs` tend to come in families sharing the same downstream app
+and connection shape (ASRTU-1_SSDV and BY70-4 both feed the same SSDV
+viewer and telemetry upload agent, for instance) - once one satellite's
+outputs are set up correctly, the next one shouldn't need retyping
+protocol/block conventions from scratch.
+
+`edit_satellite.py --extra-output-name NAME ...` only ever touches
+`satellites.yaml`. If the `.grc`'s actual block (its name, port, or
+address) needs to change too, that's still a separate, manual edit to
+the `.grc` itself - the script says so after any `extra_outputs` change.
 
 ## Why some buttons open a new terminal window instead
 
@@ -58,6 +117,14 @@ first), so you can watch live output and Ctrl-C them independently of
 the GUI. If none of those terminal emulators are installed, the GUI
 tells you the exact command to run by hand instead of failing silently.
 
+Each of these is launched via a shared `spawn_in_terminal()` helper that
+explicitly `cd`s to the repo root first and holds the window open after
+the process exits, success or crash - without both of those, a terminal
+emulator like `gnome-terminal` can silently start in the wrong directory
+(its client/server model doesn't reliably inherit this process's cwd)
+and close instantly the moment the command inside it exits, hiding any
+real error before you can read it.
+
 **The GUI has no idea what state these are in once launched.** It
 doesn't know if `relay.py` is still running, crashed, or was closed -
 that's a real limitation of the detached-process approach, traded
@@ -66,10 +133,32 @@ process-detection (already built, already used from the CLI) would be
 the natural way to surface "is this actually running" back in the GUI
 later, if that becomes worth doing.
 
+## Checks, TLE data, and the pass scheduler
+
+| Button | What it actually runs |
+|---|---|
+| Run preflight.py (full check) | exactly that, captured and shown in the output pane |
+| Run doctor.py | exactly that |
+| Run update_tle.py | `update_tle.py` with no extra flags - it auto-detects every configured satellite not covered by the base Celestrak groups and fetches those individually on its own, every run, regardless of what's passed on the command line |
+| Show schedule | `show_queue.py` |
+| Plan passes (auto-approve) | prompts for hours-ahead, then `plan_passes.py --hours N` |
+| Plan passes (interactive, new window) | same prompt, then `plan_passes.py --hours N --interactive` in its own terminal (see above) |
+| Start relay.py / Start run_passes.py (new window) | `relay.py --verbose` / `run_passes.py --verbose`, each in its own terminal |
+
+Every captured (non-terminal) Python subprocess call runs with `-u`
+(unbuffered), inserted automatically by `run_cmd()`. Without it, a
+script's stdout switches from line-buffered to fully block-buffered the
+moment it's a pipe rather than a real terminal - `doctor.py` calling
+`preflight.py` as its own nested subprocess is exactly the case that
+broke without this: the outer script's buffered output could sit
+unflushed while the inner one ran, producing output that never
+completed at all rather than just appearing out of order.
+
 ## The "Gaps found" column
 
-Three cheap checks run automatically, done directly in Python with no
-subprocess call at all, so they update instantly on every refresh:
+A handful of cheap checks run automatically, done directly in Python
+with no subprocess call at all, so they update instantly on every
+refresh:
 
 - does `flowgraphs/<name>.grc` exist?
 - does `flowgraphs/<name>.py` exist? (has it ever been `grcc`'d?)
@@ -78,21 +167,30 @@ subprocess call at all, so they update instantly on every refresh:
   rather than both or neither? (a malformed relay config)
 
 These are deliberately narrow and not a replacement for `preflight.py`'s
-full check - they exist purely to make the table itself useful without
-needing to click anything first. Any satellite showing gaps here is
-worth a "Run preflight.py" click for the complete picture.
+full check (which also validates `extra_outputs`, decoder file paths,
+TLE coverage, and frequency agreement between the `.grc` and
+`satellites.yaml`) - they exist purely to make the table itself useful
+without needing to click anything first. Any satellite showing gaps here
+is worth a "Run preflight.py" click for the complete picture.
 
-## Known limitations (it's a rough prototype - being upfront about this)
+## The output pane
+
+**Clear**, **Copy**, and **Save to file...** sit above the pane itself.
+Copy and Save capture whatever's currently shown; Clear empties it.
+There's no running log across multiple commands - each action replaces
+what was there before.
+
+## Known limitations
 
 - No confirmation dialog before Enable/Disable fires - it runs the
-  moment you click
+  moment you click (Delete and removing an `extra_outputs` entry both
+  do confirm first)
+- No live status for anything launched in a new window (relay, execution,
+  interactive planning) - see above
 - The table's slug-guessing (turning a satellite's `script:` field back
   into its likely `.grc`/`.py` names) is a rough approximation of
   `add_satellite.py`'s real slugify logic, close enough for display but
   not authoritative
-- No live status for anything launched in a new window (see above)
-- Copy/Save only capture the output pane's current contents - there's no
-  running log across multiple commands
 
 ## Running it
 

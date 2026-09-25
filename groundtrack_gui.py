@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-groundtrack_gui.py - rough prototype: a simple GUI over the existing
+groundtrack_gui.py - a simple GUI over the existing
 groundtrack scripts.
 
 Deliberately does NOT modify, import, or depend on the internals of any
@@ -107,7 +107,7 @@ def find_terminal():
 class GroundtrackGUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("groundtrack - fleet overview (rough prototype)")
+        self.title("groundtrack - fleet overview")
         self.geometry("900x600")
 
         self._build_scroll_container()

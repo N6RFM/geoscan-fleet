@@ -171,6 +171,7 @@ groundtrack/
 ├── send_test_frames.py      # single-satellite version test_downstream.py builds on
 ├── locate_decoders.py       # finds & patches decoder .yml paths in your .grc files
 ├── add_satellite.py         # generates a new satellite's .grc + config entry
+├── edit_satellite.py        # edits an existing satellite's fields (and extra_outputs)
 ├── toggle_satellite.py      # enable/disable a satellite without deleting its config
 ├── update_tle.py            # refreshes tle_file from a base of Celestrak groups + extras
 ├── ci_check.py              # portable checks - what CI runs on every push
@@ -186,7 +187,9 @@ groundtrack/
 │   ├── geoscan4.grc / .py
 │   ├── geoscan5.grc / .py
 │   ├── geoscan6.grc / .py
-│   └── scionx.grc / .py    (recording-only satellite - no decoder, no relay, see below)
+│   ├── scionx.grc / .py    (recording-only satellite - no decoder, no relay, see below)
+│   └── asrtussdv.grc / .py (recording-only, with extra_outputs - two direct-connection
+│                             consumers bypassing relay.py entirely, see below)
 ├── groundtrack_gui.py     # optional GUI over the CLI tools - see GUI.md
 ├── delete_satellite.py     # removes a satellite's config entry (files untouched)
 └── tle/
@@ -195,14 +198,15 @@ groundtrack/
 
 ## GUI (optional)
 
-A rough Tkinter prototype, `groundtrack_gui.py`, gives you a table of
-every satellite plus buttons for the actions above - enable/disable,
-add/delete, run checks, refresh TLEs, plan and execute passes. It's
-entirely optional: every action is a real subprocess call to the exact
-same script and flags documented in this README, so the CLI tools work
-identically whether or not you ever open the GUI. See
-[GUI.md](GUI.md) for the full picture, including why a few buttons open
-their own terminal window instead of running inline.
+`groundtrack_gui.py` gives you a table of every satellite plus buttons
+for the actions above - add/edit/enable/disable/delete, run checks,
+refresh TLEs, plan and execute passes. It's entirely optional: every
+action is a real subprocess call to the exact same script and flags
+documented in this README, so the CLI tools work identically whether or
+not you ever open the GUI. See [GUI.md](GUI.md) for the full picture,
+including why a few buttons open their own terminal window instead of
+running inline, and how to manage `extra_outputs` (below) through the
+Edit dialog rather than by hand-editing YAML.
 
 ```
 python3 groundtrack_gui.py
@@ -540,6 +544,22 @@ automatically, sets `recordOnStart: True`, and adds the config entry
 with no `producer_port`/`consumer_port` - see "Adding a satellite" below
 for the full picture, including toggling satellites on and off.
 
+**`edit_satellite.py`** - updates an already-configured satellite's
+fields, and its `extra_outputs` list, without touching anything you
+don't explicitly pass:
+```
+python3 edit_satellite.py GEOSCAN-1 --freq 435970000
+python3 edit_satellite.py GEOSCAN-1 --enabled
+python3 edit_satellite.py ASRTU-1_SSDV --extra-output-name ssdv_viewer \
+    --extra-output-protocol tcp_server \
+    --extra-output-block network_socket_pdu_0 --extra-output-port 9985
+```
+Keeps the `.grc`'s `freq`/`nfreq`/decoder-`norad` blocks in sync
+automatically when those fields change, refuses a NORAD or port
+collision with another satellite, and replaces (rather than duplicates)
+an `extra_outputs` entry when you re-add one with the same name. See
+"Adding a satellite" below for the full `extra_outputs` picture.
+
 **`ci_check.py`** - the portable subset of `preflight.py`'s checks that
 can run with no GNU Radio, no Hamlib, and no real TLE file - what runs in
 CI on every push. Safe to run locally too, any time:
@@ -865,12 +885,73 @@ entry with no `producer_port`/`consumer_port` at all - that absence is
 what tells `relay.py` and `preflight.py` this satellite has no relay
 involvement.
 
+**Direct-connection outputs** (`extra_outputs`) - for a satellite with a
+second live output that a specific downstream app connects to directly,
+completely bypassing `relay.py`. This is a different situation from the
+relay entirely: `relay.py` is a plain TCP byte-forwarder with no
+protocol awareness of its own - it exists to decouple a short-lived
+flowgraph from a long-lived KISS decoder connection, a real problem for
+raw TCP. A protocol like ZeroMQ PUB/SUB already solves that same
+decouple-producer-from-consumer problem natively (a SUB socket can
+connect, disconnect, and reconnect independently at any time, no relay
+needed), so routing it through `relay.py` would be solving a problem
+that protocol doesn't actually have. `asrtussdv.grc` is the working
+example: its `network_socket_pdu` block (`TCP_SERVER`, listening
+directly for a dedicated SSDV image viewer to connect in) and its
+`zeromq_pub_msg_sink` block (publishing telemetry for a separate upload
+agent to subscribe to) both bypass the relay this way.
+```yaml
+  - name: ASRTU-1_SSDV
+    norad: 61781
+    freq_hz: 436210000
+    script: flowgraphs/asrtussdv.py
+    min_elev_deg: 15
+    extra_outputs:
+      - name: ssdv_viewer
+        protocol: tcp_server
+        block: network_socket_pdu_0
+        port: 9985
+      - name: telemetry_upload_agent
+        protocol: zeromq_pub
+        block: zeromq_pub_msg_sink_0
+        address: "tcp://127.0.0.1:5556"
+```
+`preflight.py` validates each entry against the real `.grc` the same way
+it validates `producer_port` - confirming the named block exists, and
+that its port (for `tcp_server`/`tcp_client`) or address (for
+`zeromq_pub`) actually matches. `add_satellite.py` doesn't create these
+for you; either hand-edit `satellites.yaml` and the `.grc` together, or
+use `edit_satellite.py` (below) or the GUI's Edit dialog, which manages
+this list properly - including copying an existing satellite's outputs
+as a starting point when a new satellite shares the same downstream app
+(as ASRTU-1_SSDV and BY70-4 both do).
+
 Either way, finish with:
 ```
 grcc flowgraphs/<name>.grc      # or ./regen_all.sh for everything at once
-python3 update_tle.py --extra-catnr <norad>   # only if the base groups don't cover it
+python3 update_tle.py           # auto-covers every configured satellite, no flags needed
 python3 preflight.py
 ```
+
+**Editing a satellite** already in `satellites.yaml` - NORAD, frequency,
+min elevation, relay ports, enabled state, or its `extra_outputs` list:
+```
+python3 edit_satellite.py GEOSCAN-1 --freq 435970000
+python3 edit_satellite.py GEOSCAN-1 --producer-port 9110 --consumer-port 8110
+
+python3 edit_satellite.py ASRTU-1_SSDV --extra-output-name ssdv_viewer \
+    --extra-output-protocol tcp_server \
+    --extra-output-block network_socket_pdu_0 --extra-output-port 9985
+python3 edit_satellite.py ASRTU-1_SSDV --remove-extra-output ssdv_viewer
+```
+Only touches the fields you actually pass. Changing NORAD or frequency
+also updates the matching blocks in the `.grc` automatically, the same
+way `add_satellite.py` does on creation - `satellites.yaml` and the
+`.grc` can't quietly drift apart from each other this way. Refuses a
+NORAD or port collision with another configured satellite rather than
+silently creating one. Adding an `extra_outputs` entry with a name that
+already exists on that satellite replaces it rather than duplicating it,
+so re-running the same command with a corrected value is safe.
 
 **Pausing a satellite** without deleting its hard-won config - sharing
 one SDR across satellites you don't all want active at once is the
