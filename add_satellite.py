@@ -71,6 +71,25 @@ def generate_grc(template_path, out_path, name, norad, freq_hz, producer_port, r
         sock = find_block(blocks, "network_socket_pdu_0")
         sock["parameters"]["port"] = str(producer_port)
         sock["parameters"]["type"] = "TCP_CLIENT"  # explicit, in case the template ever regresses
+    else:
+        # actually strip the decoder/KISS/telemetry/relay wiring, not just
+        # skip setting their parameters - a record-only satellite has no
+        # decoder and no relay involvement at all, and leaving these
+        # blocks present-but-unconfigured means they silently keep
+        # whatever the TEMPLATE satellite's own values were (its decoder
+        # file, its producer_port), which preflight.py correctly flags as
+        # a real, live relay connection nobody actually configured
+        strip_names = set()
+        for block_id in ("satellites_satellite_decoder", "satellites_telemetry_submit",
+                          "satellites_kiss_file_sink", "network_socket_pdu",
+                          "satellites_print_timestamp", "satellites_hexdump_sink"):
+            for b in blocks:
+                if b["id"] == block_id:
+                    strip_names.add(b["name"])
+        if strip_names:
+            blocks[:] = [b for b in blocks if b["name"] not in strip_names]
+            data["connections"] = [c for c in data.get("connections", [])
+                                    if not any(n in strip_names for n in c)]
 
     sink = find_block(blocks, "filerepeater_AdvFileSink_0")
     sink["parameters"]["basefile"] = slugify(name)
