@@ -161,7 +161,22 @@ def main():
         sys.exit(f"No usable TLE data from any source - refusing to overwrite {tle_path}. "
                   f"The existing file is untouched.")
 
-    for catnr in args.extra_catnr:
+    # Auto-detect every currently-configured satellite the base groups
+    # didn't cover, and fetch those individually too - regardless of
+    # whether --extra-catnr was passed this specific invocation. Without
+    # this, a bare `update_tle.py` run (or one that only remembers to
+    # list *some* satellites) silently drops coverage for whichever
+    # satellite isn't in that particular command line, since this script
+    # fully overwrites tle_file from scratch every time rather than
+    # merging with whatever the previous run happened to include.
+    configured_norads = {s["norad"] for s in cfg.get("satellites", []) if "norad" in s}
+    auto_catnrs = sorted(configured_norads - combined_norads)
+    if auto_catnrs:
+        print(f"\n{len(auto_catnrs)} configured satellite(s) not covered by the base "
+              f"groups - fetching individually: {auto_catnrs}")
+
+    all_catnrs = sorted(set(args.extra_catnr) | set(auto_catnrs))
+    for catnr in all_catnrs:
         data, norads = fetch(CATNR_URL.format(catnr=catnr), f"catalog number {catnr}")
         if data:
             if catnr not in norads:

@@ -194,11 +194,15 @@ def check_grc(name, grc_path, sat):
             check(f"{name}: has a network_socket_pdu block", False,
                   "relay connection missing entirely")
     elif sock_block:
-        check(f"{name}: network_socket_pdu present but no producer_port/consumer_port "
-              f"configured", False,
-              "recording-only satellite has a live relay connection in its .grc - "
-              "either add producer_port/consumer_port to satellites.yaml, or remove "
-              "the network_socket_pdu block if this is intentionally recording-only")
+        claimed_by_extra = any(e.get("block") == "network_socket_pdu_0"
+                                for e in sat.get("extra_outputs", []))
+        if not claimed_by_extra:
+            check(f"{name}: network_socket_pdu present but no producer_port/consumer_port "
+                  f"configured", False,
+                  "recording-only satellite has a live relay connection in its .grc - "
+                  "either add producer_port/consumer_port to satellites.yaml, or declare "
+                  "it under extra_outputs if it's a direct connection bypassing relay.py, "
+                  "or remove the network_socket_pdu block if it's genuinely unused")
 
     dec_block = blocks.get("satellites_satellite_decoder_0")
     if dec_block:
@@ -212,6 +216,51 @@ def check_grc(name, grc_path, sat):
     if sink_block:
         record_on_start = str(sink_block["parameters"].get("recordOnStart", "")).lower()
         check(f"{name}: recordOnStart is True", record_on_start == "true")
+
+    check_extra_outputs(name, blocks, sat)
+
+
+def check_extra_outputs(name, blocks, sat):
+    """Validates satellites.yaml's optional extra_outputs list against the
+    real .grc - for satellites with a second (or third) live output that
+    a specific downstream app connects to directly, bypassing relay.py
+    entirely. relay.py is a plain TCP byte-forwarder; a protocol like
+    ZeroMQ PUB/SUB already handles the connect/disconnect robustness
+    relay.py exists to provide for raw TCP, so there's no reason to route
+    it through the relay - this just lets preflight.py catch the .grc and
+    satellites.yaml drifting apart the same way it already does for the
+    primary producer_port/consumer_port pair."""
+    for extra in sat.get("extra_outputs", []):
+        out_name = extra.get("name", "?")
+        block_name = extra.get("block")
+        block = blocks.get(block_name)
+        if not block:
+            check(f"{name}: extra_output '{out_name}' block '{block_name}' found in .grc",
+                  False, "not found - check the block name matches exactly")
+            continue
+
+        protocol = extra.get("protocol")
+        if protocol == "zeromq_pub":
+            grc_addr = block["parameters"].get("address")
+            check(f"{name}: extra_output '{out_name}' address matches satellites.yaml",
+                  grc_addr == extra.get("address"),
+                  f".grc={grc_addr}  yaml={extra.get('address')}")
+        elif protocol in ("tcp_server", "tcp_client"):
+            grc_port = block["parameters"].get("port")
+            try:
+                port_match = int(grc_port) == int(extra.get("port"))
+            except (TypeError, ValueError):
+                port_match = False
+            check(f"{name}: extra_output '{out_name}' port matches satellites.yaml",
+                  port_match, f".grc={grc_port}  yaml={extra.get('port')}")
+            expected_type = "TCP_SERVER" if protocol == "tcp_server" else "TCP_CLIENT"
+            grc_type = block["parameters"].get("type", "")
+            check(f"{name}: extra_output '{out_name}' type is {expected_type}",
+                  expected_type in str(grc_type), f"got {grc_type!r}")
+        else:
+            check(f"{name}: extra_output '{out_name}' has a recognized protocol",
+                  False, f"unknown protocol {protocol!r} - expected zeromq_pub, "
+                         f"tcp_server, or tcp_client")
 
 
 def live_check(cfg, only=None, duration=8):
