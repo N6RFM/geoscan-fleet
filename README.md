@@ -3,8 +3,10 @@
 Unattended GNU Radio ground station automation for tracking multiple
 satellites on a single shared SDR and rotor. Originally built for the
 GEOSCAN cubesat constellation; now satellite-agnostic - any mix of
-decode-and-relay satellites (built on
-[gr-satellites](https://github.com/daniestevez/gr-satellites)) and
+decode-and-relay satellites (a live downstream decoder receives
+continuously-updated telemetry frames during each pass, via
+[gr-satellites](https://github.com/daniestevez/gr-satellites) and a
+small relay process that keeps the connection open across passes) and
 recording-only satellites (raw IQ capture, no decoder required) can
 share the same schedule, the same hardware, and the same toolkit. Also
 uses Hamlib and Skyfield.
