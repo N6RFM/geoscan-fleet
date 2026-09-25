@@ -14,6 +14,7 @@ Usage:
 
 import glob
 import os
+import yaml
 import re
 import socket
 import subprocess
@@ -247,25 +248,50 @@ def quick_status():
 def check_stray_compiled_files():
     section("Stray compiled flowgraphs (grcc writes to cwd, not the .grc's own folder)")
     grc_paths = sorted(glob.glob("flowgraphs/*.grc"))
-    slugs = [os.path.splitext(os.path.basename(p))[0] for p in grc_paths]
     found_any = False
-    for slug in slugs:
-        stray_path = f"{slug}.py"
-        if os.path.exists(stray_path):
+
+    for grc_path in grc_paths:
+        slug = os.path.splitext(os.path.basename(grc_path))[0]
+
+        # the main flowgraph .py - this one DOES belong in flowgraphs/,
+        # since that's where satellites.yaml's script: path points
+        stray_main = f"{slug}.py"
+        if os.path.exists(stray_main):
             found_any = True
             correct_path = f"flowgraphs/{slug}.py"
             if os.path.exists(correct_path):
-                print(f"  {stray_path} - stray duplicate, {correct_path} already "
+                print(f"  {stray_main} - stray duplicate, {correct_path} already "
                       f"exists correctly. Safe to remove:")
-                print(f"    rm {stray_path}")
+                print(f"    rm {stray_main}")
             else:
-                print(f"  {stray_path} - landed here instead of {correct_path}. Move it:")
-                print(f"    mv {stray_path} {correct_path}")
+                print(f"  {stray_main} - landed here instead of {correct_path}. Move it:")
+                print(f"    mv {stray_main} {correct_path}")
+
+        # companion .py files for every embedded Python block (epy_block) -
+        # grcc writes one per embedded block too, also to cwd. Unlike the
+        # main flowgraph .py, nothing ever looks for these in flowgraphs/ -
+        # they're pure disposable clutter, regenerated on every compile,
+        # so the right fix is always to just delete them, never move them
+        try:
+            with open(grc_path) as f:
+                grc = yaml.safe_load(f)
+            epy_names = [b["name"] for b in grc.get("blocks", []) if b.get("id") == "epy_block"]
+        except Exception:
+            epy_names = []
+        for name in epy_names:
+            stray_companion = f"{slug}_{name}.py"
+            if os.path.exists(stray_companion):
+                found_any = True
+                print(f"  {stray_companion} - disposable companion file for an "
+                      f"embedded Python block, regenerated on every compile:")
+                print(f"    rm {stray_companion}")
+
     if not found_any:
         print("  none found")
     else:
-        print(f"\n  This happens because 'grcc <path>' always writes its output to "
-              f"the current directory, ignoring the .grc's own folder - "
+        print(f"\n  This happens because 'grcc <path>' always writes its output - "
+              f"the main flowgraph AND a companion file per embedded Python block - "
+              f"to the current directory, ignoring the .grc's own folder. "
               f"'./regen_all.sh' avoids it entirely by passing -o flowgraphs "
               f"explicitly. Prefer that over calling grcc directly.")
 
