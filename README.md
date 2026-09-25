@@ -680,13 +680,57 @@ failing silently later inside `plan_passes.py`.
   (`F <hz>`, computed live from the TLE via Skyfield).
 - Whichever satellite's flowgraph is currently running *polls* that same
   rigctld for the current frequency (`f`) via an embedded Python block
-  (`rig_freq_poller_0`) and feeds it into its Doppler-correcting mixer.
+  (`rig_freq_poller_0`) and feeds it into a GRC variable (`freq`) via a
+  `Message Pair to Variable` block.
 - Because there's exactly one rigctld for the whole fleet and only one
   flowgraph is ever alive at a time (single SDR), there's no per-satellite
   port to manage - every `.grc` points at the same `127.0.0.1:<rig_port>`.
 - This is genuine Hamlib, not a custom protocol, so a real copy of
   Gpredict's radio control window can point at the same address (as a NET
   rigctl rig) purely for a visual read-out if you want one.
+
+**What actually happens to that `freq` variable once it updates** - this
+is the part worth understanding fully, since it's easy to assume Doppler
+correction means re-tuning the SDR hardware itself, and that's not what
+happens here. Look at `osmosdr_source_0`'s own tuned frequency in any
+working `.grc` (`geoscan1.grc` is the reference): its value is a fixed
+formula, `nfreq - offset` - built only from `nfreq` (the satellite's
+*nominal*, unchanging frequency) and `offset` (a fixed DC-avoidance
+offset, `50e3` Hz by convention). **The SDR hardware is tuned exactly
+once, at flowgraph startup, and never retuned for the rest of the
+pass** - deliberately, since continuously re-tuning real hardware
+mid-pass risks PLL relock glitches and settling delays at exactly the
+moment you can least afford to lose samples. All the actual Doppler
+tracking happens one stage later, in the Signal Source block
+(`analog_sig_source_x_0_0`) feeding a `Multiply` block: its frequency is
+`-(freq-nfreq+offset)+BFO` - it *does* reference the live `freq`
+variable, and continuously recalculates the mixing frequency to shift
+the signal by exactly the live Doppler offset, entirely in software,
+after the fixed-frequency hardware has already captured it. As long as
+the shifted signal stays inside the low-pass filter's passband (25 kHz
+by convention here, comfortably wider than the few-kHz shift a typical
+LEO pass produces at these frequencies), this works correctly and avoids
+ever touching the hardware mid-pass at all.
+
+**The one real pitfall, confirmed the hard way on a real satellite:**
+`rig_freq_poller` is not the only block that can feed a `Message Pair to
+Variable` block, and the other common one looks superficially similar
+but does something completely different. `gpredict_doppler` is part of
+the same OOT module and produces the same kind of message output - but
+it's a *passive listener*, waiting for an actual instance of the
+Gpredict application to connect to it and push frequency updates over
+Gpredict's own native rig-control protocol. This toolkit never plays
+that role - `run_passes.py` only ever pushes frequency *into* `rigctld`
+as a Hamlib client; it never connects *out* as a Gpredict client to
+anything. A flowgraph wired with `gpredict_doppler` instead of
+`rig_freq_poller` will run with no errors, tune correctly at pass start,
+and then silently receive zero Doppler correction for the entire pass -
+the console just shows `[doppler] Waiting for connection on:
+127.0.0.1:<port>` for the whole thing, since nothing ever will connect.
+**Always use `rig_freq_poller`, matching `geoscan1.grc`'s wiring exactly**
+- if a satellite's `.grc` was built by copying an unrelated gr-gpredict
+example rather than an existing satellite in this fleet, check this
+specifically before trusting a pass's Doppler correction.
 
 ## Antenna control
 
