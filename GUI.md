@@ -63,7 +63,7 @@ real bugs, across three separate satellites).
 
 Some satellites have a second (or third) live output that a specific
 downstream app connects to directly, bypassing `relay.py` entirely - see
-`README.md`'s "Adding a satellite" section for the full rationale
+[docs/adding-satellites.md](docs/adding-satellites.md) for the full rationale
 (`relay.py` is a plain TCP byte-forwarder; a protocol like ZeroMQ
 PUB/SUB already handles the connect/disconnect robustness it exists to
 provide for raw TCP, so there's no reason to route it through the
@@ -82,8 +82,7 @@ exact name in the `.grc`, and a port-or-address field that relabels
 itself and pre-fills a sensible default depending on which protocol is
 selected. Choosing `tcp_bridge` also reveals a second field, **Bridge
 port**, since that protocol needs both the flowgraph's own port and the
-separate port the real downstream consumer should connect to - see "The
-tcp_bridge" in `README.md` for why a `TCP_SERVER` flowgraph needs this
+separate port the real downstream consumer should connect to - see [The tcp_bridge](docs/architecture.md) in the architecture doc for why a `TCP_SERVER` flowgraph needs this
 extra step where the other three protocols don't.
 
 At the top of that sub-form is a **"Copy from existing output"**
