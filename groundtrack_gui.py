@@ -46,6 +46,23 @@ def slug_for(sat):
     return sat.get("script", "").replace("flowgraphs/", "").replace(".py", "")
 
 
+def suggest_next_ports(sats):
+    """Read-only preview of what add_satellite.py would auto-assign -
+    mirrors its own next_free_ports() algorithm exactly, purely to
+    pre-fill sensible defaults in the Add satellite form. The GUI never
+    writes ports itself; add_satellite.py re-derives and validates them
+    independently when actually called."""
+    used_producer = {s["producer_port"] for s in sats if "producer_port" in s}
+    used_consumer = {s["consumer_port"] for s in sats if "consumer_port" in s}
+    prod = 9101
+    while prod in used_producer:
+        prod += 1
+    cons = 8101
+    while cons in used_consumer:
+        cons += 1
+    return prod, cons
+
+
 def gap_check(sat):
     """Cheap, obvious checks done directly - not a replacement for
     preflight.py, just instant table feedback before running it."""
@@ -159,6 +176,8 @@ class GroundtrackGUI(tk.Tk):
                    command=lambda: self.toggle(True)).pack(side="left", padx=4)
         ttk.Button(row1, text="Disable selected",
                    command=lambda: self.toggle(False)).pack(side="left")
+        ttk.Button(row1, text="Edit selected",
+                   command=self.edit_satellite_dialog).pack(side="left", padx=4)
         ttk.Button(row1, text="Regenerate .grc for selected",
                    command=self.regen_selected).pack(side="left", padx=4)
         ttk.Button(row1, text="Delete selected",
@@ -254,7 +273,12 @@ class GroundtrackGUI(tk.Tk):
         outer script's own buffered output can sit unflushed while the
         inner one runs, producing scrambled ordering or, in doctor.py's
         case, output that never completes at all. -u forces immediate
-        flushing regardless of whether stdout is a terminal or a pipe."""
+        flushing regardless of whether stdout is a terminal or a pipe.
+
+        Returns (returncode, output) - callers that need to know whether
+        the command actually succeeded (like the Add satellite form,
+        which needs to decide whether to close itself or stay open for
+        a retry) can check returncode rather than guessing from text."""
         if args and args[0] == sys.executable and "-u" not in args:
             args = [args[0], "-u"] + args[1:]
         self.log(f"$ {' '.join(args)}\n\n(running...)\n")
@@ -263,10 +287,12 @@ class GroundtrackGUI(tk.Tk):
             result = subprocess.run(args, capture_output=True, text=True,
                                      timeout=120)
             output = result.stdout + result.stderr
+            returncode = result.returncode
         except Exception as e:
             output = f"Failed to run: {e}"
+            returncode = -1
         self.log(f"$ {' '.join(args)}\n\n{output}")
-        return output
+        return returncode, output
 
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
@@ -435,26 +461,201 @@ class GroundtrackGUI(tk.Tk):
                      "here once you're done.")
 
     def add_satellite_dialog(self):
-        name = simpledialog.askstring("Add satellite", "Name (e.g. GEOSCAN-7):")
+        sats = load_satellites()
+        suggested_prod, suggested_cons = suggest_next_ports(sats)
+
+        win = tk.Toplevel(self)
+        win.title("Add satellite")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()  # modal - avoids editing the table while this is open
+
+        fields = {}
+
+        def add_row(r, label, default=""):
+            ttk.Label(win, text=label).grid(row=r, column=0, sticky="e",
+                                             padx=(10, 4), pady=4)
+            entry = ttk.Entry(win, width=30)
+            entry.insert(0, default)
+            entry.grid(row=r, column=1, padx=(0, 10), pady=4, sticky="w")
+            return entry
+
+        fields["name"] = add_row(0, "Name (e.g. GEOSCAN-7):")
+        fields["norad"] = add_row(1, "NORAD id:")
+        fields["freq"] = add_row(2, "Downlink frequency (Hz):")
+        fields["min_elev"] = add_row(3, "Min elevation (deg):", "15")
+
+        record_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(win, text="Recording-only (no decoder yet, just raw IQ)",
+                         variable=record_only_var,
+                         command=lambda: toggle_port_fields()).grid(
+            row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(8, 4))
+
+        fields["producer_port"] = add_row(5, "Producer port:", str(suggested_prod))
+        fields["consumer_port"] = add_row(6, "Consumer port:", str(suggested_cons))
+        ttk.Label(win, text="(suggested - only used for decode-and-relay satellites)",
+                  foreground="#666", font=("", 8)).grid(
+            row=7, column=0, columnspan=2, padx=10, sticky="w")
+
+        def toggle_port_fields():
+            state = "disabled" if record_only_var.get() else "normal"
+            fields["producer_port"].config(state=state)
+            fields["consumer_port"].config(state=state)
+
+        status_label = ttk.Label(win, text="", foreground="#a00", wraplength=340)
+        status_label.grid(row=8, column=0, columnspan=2, padx=10, pady=(4, 0))
+
+        button_row = ttk.Frame(win)
+        button_row.grid(row=9, column=0, columnspan=2, pady=10)
+
+        def submit():
+            name = fields["name"].get().strip()
+            norad = fields["norad"].get().strip()
+            freq = fields["freq"].get().strip()
+            min_elev = fields["min_elev"].get().strip() or "15"
+
+            if not name or not norad or not freq:
+                status_label.config(text="Name, NORAD, and frequency are all required.")
+                return
+
+            args = [sys.executable, "add_satellite.py", "--name", name,
+                    "--norad", norad, "--freq", freq, "--min-elev", min_elev]
+            if record_only_var.get():
+                args += ["--template", "flowgraphs/geoscan1.grc", "--record-only"]
+            else:
+                prod = fields["producer_port"].get().strip()
+                cons = fields["consumer_port"].get().strip()
+                if prod:
+                    args += ["--producer-port", prod]
+                if cons:
+                    args += ["--consumer-port", cons]
+
+            status_label.config(text="Running add_satellite.py...", foreground="#000")
+            win.update_idletasks()
+
+            returncode, output = self.run_cmd(args)
+
+            if returncode == 0:
+                self.refresh()
+                win.destroy()
+            else:
+                # stay open, keep every typed value exactly as it was -
+                # this is the whole point of a real form instead of
+                # chained popups: a failure doesn't throw away your input
+                last_line = output.strip().splitlines()[-1] if output.strip() else \
+                    "add_satellite.py failed (see the main output pane for details)"
+                status_label.config(text=f"Failed: {last_line}", foreground="#a00")
+
+        ttk.Button(button_row, text="Add", command=submit).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Cancel", command=win.destroy).pack(side="left")
+
+        fields["name"].focus_set()
+
+    def edit_satellite_dialog(self):
+        name = self.selected_name()
         if not name:
             return
-        norad = simpledialog.askstring("Add satellite", "NORAD id:")
-        if not norad:
+        sats = load_satellites()
+        sat = next((s for s in sats if s["name"] == name), None)
+        if not sat:
             return
-        freq = simpledialog.askstring("Add satellite", "Downlink frequency (Hz):")
-        if not freq:
-            return
-        record_only = messagebox.askyesno(
-            "Recording-only?",
-            "Recording-only (no decoder yet, just raw IQ)?\n\n"
-            "Choose 'No' for a normal decode-and-relay satellite.")
 
-        args = [sys.executable, "add_satellite.py", "--name", name,
-                "--norad", norad, "--freq", freq]
-        if record_only:
-            args += ["--template", "flowgraphs/geoscan1.grc", "--record-only"]
-        self.run_cmd(args)
-        self.refresh()
+        uses_relay = "producer_port" in sat or "consumer_port" in sat
+        has_extra = bool(sat.get("extra_outputs"))
+
+        win = tk.Toplevel(self)
+        win.title(f"Edit {name}")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        fields = {}
+
+        def add_row(r, label, default=""):
+            ttk.Label(win, text=label).grid(row=r, column=0, sticky="e",
+                                             padx=(10, 4), pady=4)
+            entry = ttk.Entry(win, width=30)
+            entry.insert(0, str(default))
+            entry.grid(row=r, column=1, padx=(0, 10), pady=4, sticky="w")
+            return entry
+
+        ttk.Label(win, text=f"Editing: {name} (name itself can't be changed here)",
+                  font=("", 9, "bold")).grid(row=0, column=0, columnspan=2,
+                                              padx=10, pady=(10, 4), sticky="w")
+
+        fields["norad"] = add_row(1, "NORAD id:", sat.get("norad", ""))
+        fields["freq"] = add_row(2, "Downlink frequency (Hz):", sat.get("freq_hz", ""))
+        fields["min_elev"] = add_row(3, "Min elevation (deg):", sat.get("min_elev_deg", 15))
+
+        if uses_relay:
+            fields["producer_port"] = add_row(4, "Producer port:", sat.get("producer_port", ""))
+            fields["consumer_port"] = add_row(5, "Consumer port:", sat.get("consumer_port", ""))
+        else:
+            ttk.Label(win, text="(recording-only - no producer/consumer ports to edit)",
+                      foreground="#666", font=("", 8)).grid(
+                row=4, column=0, columnspan=2, padx=10, sticky="w")
+
+        enabled_var = tk.BooleanVar(value=sat.get("enabled", True))
+        ttk.Checkbutton(win, text="Enabled", variable=enabled_var).grid(
+            row=6, column=0, columnspan=2, sticky="w", padx=10, pady=(8, 4))
+
+        if has_extra:
+            ttk.Label(win, text="This satellite has extra_outputs - not editable here. "
+                                 "Edit satellites.yaml directly if those need to change.",
+                      foreground="#a00", font=("", 8), wraplength=300).grid(
+                row=7, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="w")
+
+        status_label = ttk.Label(win, text="", foreground="#a00", wraplength=340)
+        status_label.grid(row=8, column=0, columnspan=2, padx=10, pady=(4, 0))
+
+        button_row = ttk.Frame(win)
+        button_row.grid(row=9, column=0, columnspan=2, pady=10)
+
+        def submit():
+            args = [sys.executable, "edit_satellite.py", name]
+
+            norad = fields["norad"].get().strip()
+            if norad and int(norad) != sat.get("norad"):
+                args += ["--norad", norad]
+
+            freq = fields["freq"].get().strip()
+            if freq and int(freq) != sat.get("freq_hz"):
+                args += ["--freq", freq]
+
+            min_elev = fields["min_elev"].get().strip()
+            if min_elev and float(min_elev) != float(sat.get("min_elev_deg", 15)):
+                args += ["--min-elev", min_elev]
+
+            if uses_relay:
+                prod = fields["producer_port"].get().strip()
+                if prod and int(prod) != sat.get("producer_port"):
+                    args += ["--producer-port", prod]
+                cons = fields["consumer_port"].get().strip()
+                if cons and int(cons) != sat.get("consumer_port"):
+                    args += ["--consumer-port", cons]
+
+            if enabled_var.get() != sat.get("enabled", True):
+                args += ["--enabled" if enabled_var.get() else "--disabled"]
+
+            if len(args) == 3:  # nothing but [python, script, name]
+                win.destroy()
+                return
+
+            status_label.config(text="Running edit_satellite.py...", foreground="#000")
+            win.update_idletasks()
+
+            returncode, output = self.run_cmd(args)
+
+            if returncode == 0:
+                self.refresh()
+                win.destroy()
+            else:
+                last_line = output.strip().splitlines()[-1] if output.strip() else \
+                    "edit_satellite.py failed (see the main output pane for details)"
+                status_label.config(text=f"Failed: {last_line}", foreground="#a00")
+
+        ttk.Button(button_row, text="Save", command=submit).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Cancel", command=win.destroy).pack(side="left")
 
 
 if __name__ == "__main__":
