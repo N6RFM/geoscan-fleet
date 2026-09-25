@@ -182,6 +182,10 @@ class GroundtrackGUI(tk.Tk):
                    command=lambda: self.toggle(False)).pack(side="left")
         ttk.Button(row1, text="Regenerate .grc for selected",
                    command=self.regen_selected).pack(side="left", padx=4)
+        ttk.Button(row1, text="Vet selected .grc",
+                   command=self.vet_selected).pack(side="left")
+        ttk.Button(row1, text="Vet --fix selected .grc",
+                   command=self.vet_fix_selected).pack(side="left", padx=4)
         ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(row1, text="Delete selected",
                    command=self.delete_selected).pack(side="left")
@@ -192,6 +196,8 @@ class GroundtrackGUI(tk.Tk):
                    command=self.run_preflight).pack(side="left")
         ttk.Button(row2, text="Run doctor.py",
                    command=self.run_doctor).pack(side="left", padx=4)
+        ttk.Button(row2, text="Run doctor.py --fix",
+                   command=self.run_doctor_fix).pack(side="left")
 
         row3 = ttk.LabelFrame(self.content, text="TLE data")
         row3.pack(fill="x", padx=8, pady=4)
@@ -352,6 +358,40 @@ class GroundtrackGUI(tk.Tk):
         self.run_cmd(["grcc", grc_path])
         self.refresh()
 
+    def _grc_path_for_selected(self):
+        name = self.selected_name()
+        if not name:
+            return None, None
+        sats = load_satellites()
+        sat = next((s for s in sats if s["name"] == name), None)
+        if not sat:
+            return None, None
+        grc_path = f"flowgraphs/{slug_for(sat)}.grc"
+        if not os.path.exists(grc_path):
+            messagebox.showerror("Missing .grc", f"{grc_path} doesn't exist.")
+            return None, None
+        return name, grc_path
+
+    def vet_selected(self):
+        name, grc_path = self._grc_path_for_selected()
+        if not grc_path:
+            return
+        self.run_cmd([sys.executable, "vet_grc.py", grc_path])
+
+    def vet_fix_selected(self):
+        name, grc_path = self._grc_path_for_selected()
+        if not grc_path:
+            return
+        confirmed = messagebox.askyesno(
+            "Vet --fix",
+            f"Apply automatic fixes to {grc_path}?\n\n"
+            f"Only ever renames a block or corrects options.id - never touches "
+            f"wiring or removes anything. A .bak of the current file is kept, "
+            f"and the exact diff will be shown in the output pane below.")
+        if not confirmed:
+            return
+        self.run_cmd([sys.executable, "vet_grc.py", "--fix", grc_path])
+
     def delete_selected(self):
         name = self.selected_name()
         if not name:
@@ -371,6 +411,10 @@ class GroundtrackGUI(tk.Tk):
 
     def run_doctor(self):
         self.run_cmd([sys.executable, "doctor.py"])
+
+    def run_doctor_fix(self):
+        self.run_cmd([sys.executable, "doctor.py", "--fix"])
+        self.refresh()
 
     def spawn_in_terminal(self, cmd):
         """Launch cmd (a list, e.g. [sys.executable, 'relay.py', '--verbose'])
