@@ -138,8 +138,12 @@ def vet(path, grc=None):
           "wrong place under the wrong name. Fixable with --fix.")
 
     has_waterfall = any(b["id"] == "qtgui_waterfall_sink_x" for b in blocks)
-    check(f"no Qt waterfall block (real CPU cost for nothing watching it unattended)",
-          not has_waterfall, level="warn")
+    check("Qt waterfall block removed (real CPU cost for nothing watching it unattended)",
+          not has_waterfall,
+          "a waterfall block IS present in this .grc - this is what got removed "
+          "fleet-wide earlier to fix CPU overruns during automated passes; if this "
+          "one still has it, that fix hasn't been applied here",
+          level="warn")
 
     print()
 
