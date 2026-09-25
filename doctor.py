@@ -12,6 +12,7 @@ Usage:
     python3 doctor.py --live      # also passes --live through to preflight.py
 """
 
+import glob
 import os
 import re
 import socket
@@ -243,6 +244,32 @@ def quick_status():
         print("Next:     no schedule.yaml - run plan_passes.py")
 
 
+def check_stray_compiled_files():
+    section("Stray compiled flowgraphs (grcc writes to cwd, not the .grc's own folder)")
+    grc_paths = sorted(glob.glob("flowgraphs/*.grc"))
+    slugs = [os.path.splitext(os.path.basename(p))[0] for p in grc_paths]
+    found_any = False
+    for slug in slugs:
+        stray_path = f"{slug}.py"
+        if os.path.exists(stray_path):
+            found_any = True
+            correct_path = f"flowgraphs/{slug}.py"
+            if os.path.exists(correct_path):
+                print(f"  {stray_path} - stray duplicate, {correct_path} already "
+                      f"exists correctly. Safe to remove:")
+                print(f"    rm {stray_path}")
+            else:
+                print(f"  {stray_path} - landed here instead of {correct_path}. Move it:")
+                print(f"    mv {stray_path} {correct_path}")
+    if not found_any:
+        print("  none found")
+    else:
+        print(f"\n  This happens because 'grcc <path>' always writes its output to "
+              f"the current directory, ignoring the .grc's own folder - "
+              f"'./regen_all.sh' avoids it entirely by passing -o flowgraphs "
+              f"explicitly. Prefer that over calling grcc directly.")
+
+
 def main():
     if "--status" in sys.argv:
         quick_status()
@@ -253,6 +280,7 @@ def main():
     find_other_copies(real)
     check_processes()
     check_ports()
+    check_stray_compiled_files()
     run_preflight(extra_args)
 
 
