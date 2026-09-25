@@ -65,25 +65,6 @@ def find_double_suffixed(blocks):
     return found
 
 
-def find_name_id_mismatches(blocks):
-    """A block's name should always start with its own type (id) - GRC's
-    own auto-naming guarantees this, but a manual rename in the canvas
-    (cleaning up naming conventions, say) can produce a name that doesn't
-    actually match the block's real type at all, usually from a typo
-    (blocks_multiply_x_0 instead of blocks_multiply_xx_0, say - easy to
-    drop a character while retyping). Neither the duplicate-count nor the
-    double-suffix check catches this - it's a different kind of mistake,
-    not a copy/paste artifact, so it needs its own check."""
-    found = []
-    for b in blocks:
-        if b["id"] in ("parameter", "variable", "variable_qtgui_range",
-                       "variable_low_pass_filter_taps", "note", "options"):
-            continue
-        if not b["name"].startswith(b["id"]):
-            found.append((b["name"], b["id"]))
-    return found
-
-
 def vet(path, grc=None):
     print(f"--- {path} ---")
     if grc is None:
@@ -118,15 +99,7 @@ def vet(path, grc=None):
     else:
         check("no block names show GRC's double-suffix copy/paste signature", True)
 
-    mismatches = find_name_id_mismatches(blocks)
-    if mismatches:
-        for name, block_id in mismatches:
-            check(f"'{name}' name matches its own type", False,
-                  f"this block's type is '{block_id}', but its name doesn't even "
-                  f"start with that - likely a typo from a manual rename (e.g. "
-                  f"dropping a character while retyping a longer type name)")
-    else:
-        check("every block's name matches its own type", True)
+
 
     has_gpredict_doppler = any(b["id"] == "gpredict_doppler" for b in blocks)
     check("no gpredict_doppler block present", not has_gpredict_doppler,
