@@ -19,6 +19,16 @@ passes), while LISTENING persistently for the real downstream consumer.
 The consumer gets one stable address to point at, for the life of a
 session, exactly like a SatsDecoder tab does with relay.py.
 
+Multiple satellites can share ONE bridge_port if they feed the same
+downstream app (e.g. two satellites both feeding the same SSDV image
+viewer) - each gets its own independent upstream connection, retrying on
+its own, but they share a single real listening socket, so the
+downstream app never has to change which port it's pointed at depending
+on which satellite is actually passing. Since only one satellite's
+flowgraph is ever actually running at a time (one shared SDR), only one
+upstream connection is ever actually live in practice - the others just
+sit retrying, harmlessly, until it's their turn.
+
 One-directional only (flowgraph -> downstream consumer) - this is for a
 data stream like SSDV frames, not a two-way control channel. Doesn't
 parse or care what's inside the bytes, same as relay.py.
@@ -30,10 +40,14 @@ dedicated protocol, tcp_bridge:
       - name: ssdv_viewer
         protocol: tcp_bridge
         block: network_socket_pdu_0
-        port: 9985          # the flowgraph's own TCP_SERVER - tcp_bridge.py
-                             # connects out to this as a client
+        port: 9985          # THIS satellite's flowgraph TCP_SERVER -
+                             # tcp_bridge.py connects out to it as a client
         bridge_port: 19985   # what the real downstream consumer (the
-                             # SSDV Viewer app) should actually connect to
+                             # SSDV Viewer app) should actually connect to -
+                             # shared across every satellite that uses it
+
+Disabled satellites (enabled: false) are skipped entirely, same as
+relay.py.
 
 Usage:
     python3 tcp_bridge.py [--verbose]
@@ -48,16 +62,21 @@ CONFIG_PATH = "satellites.yaml"
 RETRY_DELAY_S = 2
 
 
-class Bridge:
-    def __init__(self, name, upstream_host, upstream_port, verbose=False):
-        self.name = name
-        self.upstream_host = upstream_host
-        self.upstream_port = upstream_port
+class DownstreamListener:
+    """One shared listener per distinct bridge_port. Multiple satellites'
+    upstream connections can all feed the same set of connected downstream
+    consumers - that's what lets one stable endpoint work regardless of
+    which of several satellites sharing a downstream app is actually
+    passing right now."""
+
+    def __init__(self, bridge_port, verbose=False):
+        self.bridge_port = bridge_port
         self.verbose = verbose
         self.downstream_writers = []
+        self.label = f"bridge:{bridge_port}"
 
     def log(self, msg):
-        print(f"[{self.name}] {msg}", flush=True)
+        print(f"[{self.label}] {msg}", flush=True)
 
     def vlog(self, msg):
         if self.verbose:
@@ -78,10 +97,40 @@ class Bridge:
                 self.downstream_writers.remove(writer)
             writer.close()
 
-    async def pump_upstream(self):
-        """Connects out to the flowgraph's TCP_SERVER, retrying patiently
-        whenever it's not there (i.e. between passes), and forwards
-        whatever arrives to every currently-connected downstream writer."""
+    async def broadcast(self, data):
+        dead = []
+        for w in self.downstream_writers:
+            try:
+                w.write(data)
+                await w.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                dead.append(w)
+        for w in dead:
+            self.downstream_writers.remove(w)
+
+
+class UpstreamPump:
+    """One per (satellite, extra_output) - connects out to that specific
+    satellite's flowgraph TCP_SERVER, retrying patiently whenever it's not
+    running (i.e. between passes for THIS satellite), and forwards
+    whatever arrives to whichever shared DownstreamListener it's attached
+    to. Several pumps can share one listener."""
+
+    def __init__(self, name, upstream_host, upstream_port, listener, verbose=False):
+        self.name = name
+        self.upstream_host = upstream_host
+        self.upstream_port = upstream_port
+        self.listener = listener
+        self.verbose = verbose
+
+    def log(self, msg):
+        print(f"[{self.name}] {msg}", flush=True)
+
+    def vlog(self, msg):
+        if self.verbose:
+            self.log(msg)
+
+    async def run(self):
         while True:
             try:
                 self.vlog(f"connecting upstream to {self.upstream_host}:{self.upstream_port} ...")
@@ -92,15 +141,7 @@ class Bridge:
                     data = await reader.read(65536)
                     if not data:
                         break
-                    dead = []
-                    for w in self.downstream_writers:
-                        try:
-                            w.write(data)
-                            await w.drain()
-                        except (ConnectionResetError, BrokenPipeError):
-                            dead.append(w)
-                    for w in dead:
-                        self.downstream_writers.remove(w)
+                    await self.listener.broadcast(data)
                 self.log("upstream connection closed (flowgraph likely exited at LOS) - "
                          "will keep retrying")
             except (ConnectionRefusedError, OSError) as e:
@@ -117,27 +158,37 @@ async def main():
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
 
-    tasks = []
-    any_bridged = False
+    listeners = {}   # bridge_port -> DownstreamListener
+    pumps = []       # every UpstreamPump, regardless of which listener it feeds
+
     for sat in cfg.get("satellites", []):
+        if not sat.get("enabled", True):
+            continue
         for extra in sat.get("extra_outputs", []):
             if extra.get("protocol") != "tcp_bridge":
                 continue
-            any_bridged = True
-            bridge = Bridge(f"{sat['name']}:{extra['name']}",
-                             "127.0.0.1", extra["port"], verbose=args.verbose)
-            server = await asyncio.start_server(
-                bridge.handle_downstream, "127.0.0.1", extra["bridge_port"])
-            print(f"[{bridge.name}] listening on 127.0.0.1:{extra['bridge_port']} "
-                  f"for downstream consumers, bridging to the flowgraph's own "
-                  f"127.0.0.1:{extra['port']}", flush=True)
-            tasks.append(asyncio.create_task(bridge.pump_upstream()))
-            tasks.append(asyncio.create_task(server.serve_forever()))
+            bp = extra["bridge_port"]
+            if bp not in listeners:
+                listeners[bp] = DownstreamListener(bp, verbose=args.verbose)
+            pump = UpstreamPump(f"{sat['name']}:{extra['name']}", "127.0.0.1",
+                                 extra["port"], listeners[bp], verbose=args.verbose)
+            pumps.append(pump)
 
-    if not any_bridged:
-        print("No satellites configured with a tcp_bridge extra_output - "
+    if not listeners:
+        print("No enabled satellites configured with a tcp_bridge extra_output - "
               "nothing to do.", flush=True)
         return
+
+    tasks = []
+    for bp, listener in listeners.items():
+        server = await asyncio.start_server(listener.handle_downstream, "127.0.0.1", bp)
+        sharers = [p.name for p in pumps if p.listener is listener]
+        print(f"[bridge:{bp}] listening on 127.0.0.1:{bp} for downstream consumers "
+              f"- fed by: {', '.join(sharers)}", flush=True)
+        tasks.append(asyncio.create_task(server.serve_forever()))
+
+    for pump in pumps:
+        tasks.append(asyncio.create_task(pump.run()))
 
     await asyncio.gather(*tasks)
 
