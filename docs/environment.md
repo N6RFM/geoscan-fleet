@@ -37,6 +37,7 @@ actually been run:
 | GNU Radio Companion (`grcc`) | 3.10.9.2 |
 | Python | 3.12 |
 | OS | Linux Mint 22.3 "Zena" (Ubuntu 24.04 "noble" base; apt-based, `libhamlib-utils` is the package name used in Setup) |
+| Hamlib | `5.0.0~git 2026-07-01T19:29:58Z SHA=3bed166fd` (a git/development build, not a stable tagged release - worth knowing given the caveat below) |
 | Hamlib rig model | `1` (Dummy backend, for Doppler via `rigctld`) |
 | Hamlib rotor model | `607` |
 
@@ -47,12 +48,15 @@ Documented in full in
 (the embedded block every decode-and-relay and Doppler-tracked
 recording-only flowgraph uses) sends a bare `f` command to `rigctld`'s
 Dummy backend and expects a plain number back. That's confirmed working
-with the Hamlib version this project has actually been run against, but
-it's a behavioral assumption, not something Hamlib's own documentation
-formally guarantees identical across every release. If you upgrade
-Hamlib and Doppler correction stops working with no other obvious
-cause, this is the first thing worth re-testing - compare the version
-`doctor.py` now reports before and after, and test with:
+with `5.0.0~git 2026-07-01T19:29:58Z SHA=3bed166fd` - worth noting this
+is a git/development build, not a stable tagged release, which makes
+this assumption somewhat more exposed than usual: a dev build can change
+behavior between commits, not just between official releases. It's a
+behavioral assumption either way, not something Hamlib's own
+documentation formally guarantees identical across versions. If you
+upgrade Hamlib and Doppler correction stops working with no other
+obvious cause, this is the first thing worth re-testing - compare the
+version `doctor.py` now reports before and after, and test with:
 
 ```
 rigctld -m 1 -t 4532 &
