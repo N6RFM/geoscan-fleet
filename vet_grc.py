@@ -145,14 +145,11 @@ def vet(path, grc=None):
     active_waterfall = any(b["id"] == "qtgui_waterfall_sink_x"
                             and b.get("states", {}).get("state") != "disabled"
                             for b in blocks)
-    check("no live (enabled) Qt waterfall block (real CPU cost for nothing "
-          "watching it unattended)",
-          not active_waterfall,
-          "an enabled waterfall block is present and will actually run, "
-          "costing real CPU during every pass - a disabled one is fine "
-          "and costs nothing, since GRC excludes disabled blocks entirely "
-          "from the compiled output",
-          level="warn")
+    if active_waterfall:
+        check("Qt waterfall block enabled", False,
+              "confirm if intentional before an unattended pass", level="warn")
+    else:
+        check("no Qt waterfall block enabled", True)
 
     print()
 
