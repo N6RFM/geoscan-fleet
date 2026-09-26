@@ -165,6 +165,26 @@ creating one. Adding an `extra_outputs` entry with a name that already
 exists on that satellite replaces it rather than duplicating it, so
 re-running the same command with a corrected value is safe.
 
+**Toggling IQ recording on or off per run** (`record_iq_toggle`) - for a
+satellite whose `.grc` uses
+[gr-filerepeater_n6rfm](https://github.com/N6RFM/gr-filerepeater_n6rfm)'s
+`Advanced File Sink` block with `Record On Start` set to the expression
+`bool(record_iq)` (a Parameter block, not a fixed literal). This is a
+fork of upstream [gr-filerepeater](https://github.com/ghostop14/gr-filerepeater)
+specifically because upstream's `Record On Start` is a locked Yes/No
+dropdown with no way to reference a variable - the fork changes that one
+field's type so it can hold an expression instead. `record_iq_toggle` in
+`satellites.yaml` is a persistent capability flag confirming a
+satellite's `.grc` is wired this way; the actual record-or-not decision
+is a session-wide choice made when `run_passes.py` starts, not stored
+anywhere:
+```
+python3 edit_satellite.py ASRTU-1_SSDV --record-iq-toggle
+python3 edit_satellite.py ASRTU-1_SSDV --no-record-iq-toggle
+```
+See [run_passes.py](scripts-reference.md#run_passespy) for the
+`--record-iq` flag this actually enables.
+
 **Pausing a satellite** without deleting its hard-won config - sharing
 one SDR across satellites you don't all want active at once is the
 normal case, not an edge case:

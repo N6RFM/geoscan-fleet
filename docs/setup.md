@@ -38,7 +38,15 @@
      (see "Why every `.grc` needs a `kiss_encode_pdu` block" below)
    - the `AdvFileSink` block's `basedir` points somewhere sensible for IQ
      output, and `recordOnStart` is `True` if you want unattended
-     automatic recording
+     automatic recording (or an expression like `bool(record_iq)`,
+     referencing a Parameter block, if you want that decision made per
+     run instead - see [Toggling IQ recording on or off per
+     run](adding-satellites.md);
+     this specifically requires
+     [gr-filerepeater_n6rfm](https://github.com/N6RFM/gr-filerepeater_n6rfm)
+     rather than stock upstream `gr-filerepeater`, since upstream's
+     `Record On Start` is a fixed Yes/No with no way to reference a
+     variable)
 
 5. **Run the station setup wizard** to fill in `satellites.yaml`'s
    ground-station section:

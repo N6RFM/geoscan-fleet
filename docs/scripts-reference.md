@@ -177,3 +177,45 @@ rigctld/rotctld/relay.py are up, and time until the next approved pass:
 python3 doctor.py --status
 ```
 
+## edit_satellite.py
+
+Updates fields on an already-configured satellite - see
+[Adding a satellite](adding-satellites.md) for the
+full picture, including `extra_outputs` and `record_iq_toggle`. Only
+ever touches `satellites.yaml`, never the `.grc`, and only touches the
+specific fields you actually pass:
+```
+python3 edit_satellite.py GEOSCAN-1 --freq 435970000
+python3 edit_satellite.py GEOSCAN-1 --enabled
+python3 edit_satellite.py ASRTU-1_SSDV --record-iq-toggle
+```
+
+## run_passes.py
+
+The actual execution engine - waits for each approved pass in
+`schedule.yaml`, launches that satellite's flowgraph at AOS, retunes for
+Doppler via `rigctld`, steers the rotor via `rotctld`, and stops the
+flowgraph at LOS. Runs indefinitely; Ctrl-C to stop.
+```
+python3 run_passes.py --verbose
+python3 run_passes.py --verbose --status-interval 10
+python3 run_passes.py --no-preposition
+python3 run_passes.py --record-iq no
+```
+`--verbose` prints a live el/az/freq/Doppler line while a pass is
+active - `--status-interval` (default `5`) controls how often that line
+actually redraws; the underlying Doppler/rotor updates still happen
+every second regardless, only the printed line is throttled, since a
+real terminal session copied to a log file can otherwise look like a
+flood of scrolling lines even though only one line was ever changing in
+place. By default, when a pass ends (however it ends - normal LOS, an
+elevation safety-net, or the flowgraph crashing early), the rotor is
+pre-positioned toward wherever the *next* approved pass will actually
+rise, rather than left wherever the finished pass happened to end -
+`--no-preposition` disables this. `--record-iq {yes,no}` (default
+`yes`) is a session-wide choice affecting only satellites with
+`record_iq_toggle: true` set - see
+[Adding a satellite](adding-satellites.md)
+for what that requires. Every other satellite launches exactly as
+before, regardless of this flag.
+

@@ -158,7 +158,17 @@ later, if that becomes worth doing.
 | Plan passes (auto-approve) | prompts for hours-ahead, then `plan_passes.py --hours N` |
 | Plan passes (interactive, new window) | same prompt, then `plan_passes.py --hours N --interactive` in its own terminal (see above) |
 | Start relay.py / Start tcp_bridge.py (new window) | `relay.py --verbose` / `tcp_bridge.py --verbose`, each in its own terminal |
-| Start run_passes.py (new window) | prompts for the status line update interval (default 5s), then `run_passes.py --verbose --status-interval N`, in its own terminal |
+| Start run_passes.py (new window) | prompts for the status line update interval (default 5s), then `run_passes.py --verbose --status-interval N`, plus `--no-preposition` and `--record-iq no` if their checkboxes are unchecked, in its own terminal |
+
+Two checkboxes sit next to that button. **Pre-position rotor for next
+pass** (checked by default) moves the rotor toward wherever the next
+approved pass will rise as soon as the current one ends, instead of
+leaving it wherever the pass happened to finish. **Record IQ** (checked
+by default) only actually affects satellites with `record_iq_toggle:
+true` set in `satellites.yaml` - see
+[Adding a satellite](adding-satellites.md)
+for what that requires; every other satellite is unaffected regardless
+of this checkbox's state.
 
 Every captured (non-terminal) Python subprocess call runs with `-u`
 (unbuffered), inserted automatically by `run_cmd()`. Without it, a
