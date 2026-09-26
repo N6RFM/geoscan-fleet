@@ -147,7 +147,7 @@ def vet(path, grc=None):
                             for b in blocks)
     if active_waterfall:
         check("Qt waterfall block enabled", False,
-              "confirm if intentional before an unattended pass", level="warn")
+              "confirm if intentional before unattended pass", level="warn")
     else:
         check("no Qt waterfall block enabled", True)
 
