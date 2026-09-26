@@ -230,6 +230,9 @@ class GroundtrackGUI(tk.Tk):
         row6.pack(fill="x", padx=8, pady=(4, 8))
         ttk.Button(row6, text="Start run_passes.py (new window)",
                    command=self.start_run_passes).pack(side="left")
+        self.preposition_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row6, text="Pre-position rotor for next pass",
+                         variable=self.preposition_var).pack(side="left", padx=(8, 0))
 
     def _build_output(self):
         header = ttk.Frame(self.content)
@@ -491,8 +494,11 @@ class GroundtrackGUI(tk.Tk):
             initialvalue=5.0, minvalue=0.1)
         if interval is None:
             return
-        self.spawn_in_terminal([sys.executable, "run_passes.py", "--verbose",
-                                 "--status-interval", str(interval)])
+        cmd = [sys.executable, "run_passes.py", "--verbose",
+               "--status-interval", str(interval)]
+        if not self.preposition_var.get():
+            cmd.append("--no-preposition")
+        self.spawn_in_terminal(cmd)
 
     def run_update_tle(self):
         self.run_cmd([sys.executable, "update_tle.py"])
