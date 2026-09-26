@@ -232,8 +232,19 @@ def check_grc(name, grc_path, sat):
 
     sink_block = blocks.get("filerepeater_AdvFileSink_0")
     if sink_block:
-        record_on_start = str(sink_block["parameters"].get("recordOnStart", "")).lower()
-        check(f"{name}: recordOnStart is True", record_on_start == "true")
+        record_on_start = str(sink_block["parameters"].get("recordOnStart", ""))
+        if sat.get("record_iq_toggle", False):
+            # this satellite's Record On Start is meant to be the expression
+            # bool(record_iq) - a runtime-controllable Parameter block, not a
+            # fixed literal - so check that it's actually wired to record_iq,
+            # not that it equals the old literal True
+            check(f"{name}: recordOnStart wired to record_iq (record_iq_toggle "
+                  f"is set)", "record_iq" in record_on_start,
+                  f"got {record_on_start!r} - expected something like "
+                  f"bool(record_iq) so run_passes.py's --record-iq flag can "
+                  f"actually control this satellite")
+        else:
+            check(f"{name}: recordOnStart is True", record_on_start.lower() == "true")
 
     check_extra_outputs(name, blocks, sat)
 
