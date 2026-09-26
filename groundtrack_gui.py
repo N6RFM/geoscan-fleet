@@ -482,16 +482,20 @@ class GroundtrackGUI(tk.Tk):
         freeze the whole GUI until it was killed. It needs its own
         detached process with its own visible terminal instead, so you
         can watch its live output and Ctrl-C it independently."""
-        self.spawn_in_terminal([sys.executable, "run_passes.py", "--verbose"])
+        interval = simpledialog.askfloat(
+            "Start run_passes.py",
+            "Status line update interval (seconds) - how often the "
+            "el/az/freq/Doppler line refreshes while a pass is active. "
+            "Doppler/rotor tracking itself still updates every second "
+            "regardless; this only controls how often the line is redrawn:",
+            initialvalue=5.0, minvalue=0.1)
+        if interval is None:
+            return
+        self.spawn_in_terminal([sys.executable, "run_passes.py", "--verbose",
+                                 "--status-interval", str(interval)])
 
     def run_update_tle(self):
-        sats = load_satellites()
-        args = [sys.executable, "update_tle.py"]
-        for sat in sats:
-            norad = sat.get("norad")
-            if norad:
-                args += ["--extra-catnr", str(norad)]
-        self.run_cmd(args)
+        self.run_cmd([sys.executable, "update_tle.py"])
         self.refresh()
 
     def show_schedule(self):
