@@ -2,40 +2,37 @@
 """
 Refresh the TLE file used by plan_passes.py/run_passes.py.
 
-Builds the file from a base of one or more Celestrak groups (default:
-cubesat + amateur - between them, covering most satellites this kind of
-station is likely to track), merged together and de-duplicated. On top
-of that base, any specific satellites not covered by those groups (too
-new, uncoordinated, or simply in a different group entirely) can be
-added individually by catalog number - exactly the situation SCIONX
-was in: not in "amateur" or "cubesat", but with a stable, fetchable
-NORAD id once you know to ask for it by number instead of by group.
+SatNOGS is the primary source, Celestrak the fallback - the other way
+around from this script's earlier design. SatNOGS's own catalog
+includes "temporary" pre-NORAD-catalog designators for recently-launched
+satellites (exactly the situation several satellites here were in: too
+new for Celestrak/Space-Track's official catalog to have picked them up
+yet, but already tracked and given a working ID by SatNOGS). Celestrak
+only gets consulted per-satellite, for whatever SatNOGS didn't have -
+usually nothing, once a satellite's ID has been fully catalogued.
+
+Every satellite currently in satellites.yaml is covered automatically,
+individually, by its own norad value - there's nothing to remember to
+list on the command line for a new satellite the way earlier versions
+of this script needed (a base-group-plus-manual-catalog-number
+approach, which had a real failure mode: forgetting to list a
+satellite meant it silently dropped out of the file on the next run).
 
 Validates the result before overwriting the real file - a failed/empty/
 error-page download would otherwise silently replace good TLE data with
 garbage, breaking pass planning for the whole fleet until someone
-happened to notice. Also checks every satellite currently configured in
-satellites.yaml actually has an entry in the freshly downloaded set.
+happened to notice.
 
 Usage:
     python3 update_tle.py
-        # fetches the default groups (cubesat, amateur), merges them
-
-    python3 update_tle.py --group cubesat --group amateur --group active
-        # fetch whatever specific set of groups you want instead
-
-    python3 update_tle.py --extra-catnr 69880
-        # default groups, plus one specific satellite by catalog number
-        # that isn't in either of them
-
-    python3 update_tle.py --url "https://example.org/my-own-tle-source.txt"
-        # merge in a completely custom source alongside the groups
+        # the only normal invocation - covers every configured satellite
 
     python3 update_tle.py --check-only
         # just report current file's age and satellite coverage, don't download
 """
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -45,9 +42,8 @@ import urllib.request
 import yaml
 
 CONFIG_PATH = "satellites.yaml"
-DEFAULT_GROUPS = ["cubesat", "amateur"]
-GROUP_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
-CATNR_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=tle"
+SATNOGS_TLE_URL = "https://db.satnogs.org/api/tle/?format=json"
+CELESTRAK_CATNR_URL = "https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=tle"
 
 
 def load_cfg():
@@ -55,83 +51,60 @@ def load_cfg():
         return yaml.safe_load(f)
 
 
-def parse_norads(tle_text):
-    """Return the set of NORAD ids present in a TLE text blob."""
-    lines = [l.rstrip("\n") for l in tle_text.splitlines() if l.strip()]
-    norads = set()
-    for i in range(0, len(lines) - 2, 3):
-        line1 = lines[i + 1]
-        if not line1.startswith("1 "):
-            continue
-        try:
-            norads.add(int(line1[2:7]))
-        except ValueError:
-            continue
-    return norads
-
-
-def report_coverage(cfg, norads, label):
-    configured = {(s["name"], s["norad"]) for s in cfg.get("satellites", [])}
-    missing = [(name, norad) for name, norad in configured if norad not in norads]
-    print(f"{label}: {len(norads)} satellite(s) in TLE file, "
-          f"{len(configured)} configured in {CONFIG_PATH}")
-    if missing:
-        print(f"  MISSING from TLE file:")
-        for name, norad in sorted(missing):
-            print(f"    {name} (norad {norad})")
-    else:
-        print(f"  all configured satellites present.")
-    return missing
-
-
-def fetch(url, label):
-    """Download one source, returning (raw_text, norads) or (None, set()) on failure."""
-    print(f"Downloading {label} ({url}) ...")
+def fetch_satnogs():
+    """One bulk fetch covering everything SatNOGS knows about - there's
+    no per-satellite filter that actually works server-side (tested
+    directly: ?norad_cat_id= is silently ignored, the full list comes
+    back regardless), so filtering down to what's actually configured
+    happens locally in Python instead. Returns {norad: (tle0, tle1,
+    tle2)}, or an empty dict on any failure."""
+    print(f"Downloading SatNOGS TLE catalog ({SATNOGS_TLE_URL}) ...")
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        with urllib.request.urlopen(SATNOGS_TLE_URL, timeout=30) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        entries = json.loads(raw)
+    except Exception as e:
+        print(f"  WARNING: SatNOGS fetch failed: {e} - falling back to "
+              f"Celestrak for every satellite.")
+        return {}
+    by_norad = {}
+    for entry in entries:
+        norad = entry.get("norad_cat_id")
+        tle0, tle1, tle2 = entry.get("tle0"), entry.get("tle1"), entry.get("tle2")
+        if norad is None or not (tle1 and tle2):
+            continue
+        by_norad[norad] = (tle0 or f"0 NORAD {norad}", tle1, tle2)
+    print(f"  SatNOGS: {len(by_norad)} satellite(s) available.")
+    return by_norad
+
+
+def fetch_celestrak_one(norad):
+    """Fallback for a single satellite SatNOGS didn't have. Returns
+    (tle0, tle1, tle2) or None."""
+    url = CELESTRAK_CATNR_URL.format(catnr=norad)
+    try:
+        with urllib.request.urlopen(url, timeout=15) as resp:
             data = resp.read().decode("utf-8", errors="replace")
     except Exception as e:
-        print(f"  WARNING: fetch failed for {label}: {e} - skipping.")
-        return None, set()
-    norads = parse_norads(data)
-    if not norads:
-        print(f"  WARNING: no parseable TLE data for {label} "
-              f"({len(data)} bytes received) - skipping.")
-        return None, set()
-    print(f"  {label}: {len(norads)} satellite(s).")
-    return data, norads
-
-
-def merge_in(combined_data, combined_norads, new_data, new_norads, label):
-    """Append only the norads not already present, returning the updated (data, norads)."""
-    dupes = new_norads & combined_norads
-    if dupes:
-        print(f"  {label}: {len(dupes)} satellite(s) already present, skipping those; "
-              f"{len(new_norads) - len(dupes)} new.")
-    if new_norads - combined_norads:
-        combined_data = combined_data.rstrip("\n") + "\n" + new_data.strip("\n") + "\n"
-    return combined_data, combined_norads | new_norads
+        print(f"    Celestrak fallback for {norad} failed: {e}")
+        return None
+    lines = [l.rstrip("\n") for l in data.splitlines() if l.strip()]
+    if len(lines) < 3 or not lines[1].startswith("1 ") or not lines[2].startswith("2 "):
+        print(f"    Celestrak fallback for {norad}: no usable TLE in response")
+        return None
+    return lines[0], lines[1], lines[2]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--group", action="append", default=None, metavar="NAME",
-                     help=f"Celestrak group to include in the base set - repeatable "
-                          f"(default: {' + '.join(DEFAULT_GROUPS)})")
-    ap.add_argument("--url", action="append", default=[], metavar="URL",
-                     help="an additional custom TLE source URL to merge in alongside "
-                          "the groups - repeatable")
-    ap.add_argument("--extra-catnr", action="append", type=int, default=[], metavar="NORAD",
-                     help="also fetch this satellite individually by catalog number and "
-                          "merge it in, for satellites no group/URL above covers - repeatable")
     ap.add_argument("--check-only", action="store_true",
                      help="just report current file's age and satellite coverage, don't download")
     args = ap.parse_args()
-    groups = args.group if args.group is not None else DEFAULT_GROUPS
 
     cfg = load_cfg()
     tle_path = cfg["tle_file"]
+    satellites = cfg.get("satellites", [])
 
     if args.check_only:
         if not os.path.exists(tle_path):
@@ -139,71 +112,71 @@ def main():
         age_h = (time.time() - os.path.getmtime(tle_path)) / 3600
         print(f"{tle_path}: {age_h:.1f} hour(s) old")
         with open(tle_path) as f:
-            norads = parse_norads(f.read())
-        missing = report_coverage(cfg, norads, "Current file")
+            lines = [l.rstrip("\n") for l in f if l.strip()]
+        present_norads = set()
+        for i in range(0, len(lines) - 2, 3):
+            if lines[i + 1].startswith("1 "):
+                try:
+                    present_norads.add(int(lines[i + 1][2:7]))
+                except ValueError:
+                    pass
+        missing = [s for s in satellites if s.get("norad") not in present_norads]
+        print(f"Current file: {len(present_norads)} satellite(s), "
+              f"{len(satellites)} configured in {CONFIG_PATH}")
+        if missing:
+            print("  MISSING from TLE file:")
+            for s in missing:
+                print(f"    {s['name']} (norad {s.get('norad')})")
+        else:
+            print("  all configured satellites present.")
         sys.exit(1 if missing else 0)
 
-    combined_data, combined_norads = "", set()
+    satnogs_data = fetch_satnogs()
 
-    for group in groups:
-        data, norads = fetch(GROUP_URL.format(group=group), f"group '{group}'")
-        if data:
-            combined_data, combined_norads = merge_in(
-                combined_data, combined_norads, data, norads, f"group '{group}'")
+    lines_out = []
+    found_via_satnogs, found_via_celestrak, still_missing = [], [], []
 
-    for url in args.url:
-        data, norads = fetch(url, "custom URL")
-        if data:
-            combined_data, combined_norads = merge_in(
-                combined_data, combined_norads, data, norads, "custom URL")
+    for sat in satellites:
+        norad = sat.get("norad")
+        name = sat.get("name", "?")
+        if norad is None:
+            continue
+        if norad in satnogs_data:
+            lines_out.extend(satnogs_data[norad])
+            found_via_satnogs.append(name)
+            continue
+        print(f"  {name} (norad {norad}) not in SatNOGS - trying Celestrak fallback ...")
+        result = fetch_celestrak_one(norad)
+        if result:
+            lines_out.extend(result)
+            found_via_celestrak.append(name)
+        else:
+            still_missing.append(name)
 
-    if not combined_norads:
-        sys.exit(f"No usable TLE data from any source - refusing to overwrite {tle_path}. "
-                  f"The existing file is untouched.")
+    total_found = len(found_via_satnogs) + len(found_via_celestrak)
+    if total_found == 0:
+        sys.exit(f"No usable TLE data for any configured satellite from either source - "
+                  f"refusing to overwrite {tle_path}. The existing file is untouched.")
 
-    # Auto-detect every currently-configured satellite the base groups
-    # didn't cover, and fetch those individually too - regardless of
-    # whether --extra-catnr was passed this specific invocation. Without
-    # this, a bare `update_tle.py` run (or one that only remembers to
-    # list *some* satellites) silently drops coverage for whichever
-    # satellite isn't in that particular command line, since this script
-    # fully overwrites tle_file from scratch every time rather than
-    # merging with whatever the previous run happened to include.
-    configured_norads = {s["norad"] for s in cfg.get("satellites", []) if "norad" in s}
-    auto_catnrs = sorted(configured_norads - combined_norads)
-    if auto_catnrs:
-        print(f"\n{len(auto_catnrs)} configured satellite(s) not covered by the base "
-              f"groups - fetching individually: {auto_catnrs}")
+    combined_text = "\n".join(lines_out) + "\n"
 
-    all_catnrs = sorted(set(args.extra_catnr) | set(auto_catnrs))
-    for catnr in all_catnrs:
-        data, norads = fetch(CATNR_URL.format(catnr=catnr), f"catalog number {catnr}")
-        if data:
-            if catnr not in norads:
-                print(f"  WARNING: fetched data for {catnr} but couldn't confirm that "
-                      f"exact norad is in it - merging anyway, double check the result.")
-            combined_data, combined_norads = merge_in(
-                combined_data, combined_norads, data, norads, f"catalog number {catnr}")
-
-    missing = report_coverage(cfg, combined_norads, "\nCombined result")
-
-    # write to a temp file first, then move into place, so a crash or
-    # interruption partway through can never leave tle_file half-written
     tle_dir = os.path.dirname(os.path.abspath(tle_path)) or "."
     fd, tmp_path = tempfile.mkstemp(dir=tle_dir, prefix=".tle_download_")
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(combined_data)
+            f.write(combined_text)
         shutil.move(tmp_path, tle_path)
     except Exception:
         os.unlink(tmp_path)
         raise
 
-    print(f"Wrote {tle_path} ({len(combined_norads)} satellite(s) total).")
-    if missing:
-        print(f"\nWARNING: {len(missing)} configured satellite(s) still missing (see above). "
-              f"Their pass planning will fail until this is resolved - add the group they're "
-              f"actually in via --group, or fetch them individually with --extra-catnr.")
+    print(f"\nWrote {tle_path} ({total_found} satellite(s) total).")
+    print(f"  {len(found_via_satnogs)} via SatNOGS, {len(found_via_celestrak)} via "
+          f"Celestrak fallback.")
+    if still_missing:
+        print(f"\nWARNING: {len(still_missing)} configured satellite(s) not found in "
+              f"either source: {', '.join(still_missing)}. Their pass planning will "
+              f"fail until this is resolved.")
         sys.exit(1)
 
 
