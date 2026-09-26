@@ -392,7 +392,7 @@ def main():
                             # only satellites whose .grc actually has the
                             # record_iq Parameter block wired up get this flag -
                             # everything else launches exactly as before
-                            cmd += ["--record_iq", "1" if args.record_iq == "yes" else "0"]
+                            cmd += ["--record-iq", "1" if args.record_iq == "yes" else "0"]
                         active_proc = subprocess.Popen(cmd)
                         active_pass = p
                         time.sleep(3)  # let the flowgraph come up before polling rigctld
