@@ -208,6 +208,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true",
                      help="print each Doppler/rotor update while a pass is active")
+    ap.add_argument("--status-interval", type=float, default=5.0, metavar="SECONDS",
+                     help="how often to print the verbose status line during a pass "
+                          "(default: 5s) - Doppler/rotor tracking itself still updates "
+                          "every second regardless, only the printed line is throttled")
     args = ap.parse_args()
 
     acquire_lock()
@@ -250,7 +254,8 @@ def main():
     active_pass = None
     active_proc = None
     is_tty = sys.stdout.isatty()
-    last_status_print = None  # for non-tty: only print countdown periodically
+    last_pass_status_print = None   # throttle for the during-pass tracking line
+    last_idle_status_print = None   # throttle for the "waiting for next pass" line
 
     print("Executor running. Ctrl-C to stop.")
     try:
@@ -295,9 +300,29 @@ def main():
                             rot.point(az_deg, el_deg)
                         if args.verbose:
                             remaining = format_countdown(active_pass["los_dt"] - now)
-                            print(f"[{sat_cfg['name']}] el={el_deg:5.1f} az={az_deg:5.1f}  "
-                                  f"freq={corrected:,.0f} Hz (doppler {dop:+.0f} Hz)  "
-                                  f"LOS in {remaining}")
+                            status = (f"[{sat_cfg['name']}] el={el_deg:5.1f} az={az_deg:5.1f}  "
+                                      f"freq={corrected:,.0f} Hz (doppler {dop:+.0f} Hz)  "
+                                      f"LOS in {remaining}")
+                            # the underlying Doppler/rotor updates above still
+                            # happen every second regardless - only how often
+                            # this line actually gets WRITTEN is throttled,
+                            # for both paths. For a real terminal, write_status()
+                            # only overwrites the same line, but a terminal
+                            # emulator's own scrollback/copy buffer can still
+                            # preserve every individual \r-updated write as its
+                            # own line - so a live TTY session copied to a text
+                            # file can look like scrolling spam even though the
+                            # on-screen display only ever showed one line
+                            # changing. Throttling how often write_status() is
+                            # even called fixes that too, not just the
+                            # redirected-to-a-file case.
+                            if last_pass_status_print is None or \
+                                    (now - last_pass_status_print).total_seconds() >= args.status_interval:
+                                if is_tty:
+                                    write_status(status)
+                                else:
+                                    print(status)
+                                last_pass_status_print = now
                 except Exception as e:
                     if is_tty:
                         clear_line()
@@ -338,9 +363,10 @@ def main():
 
                 if is_tty:
                     write_status(status)
-                elif last_status_print is None or (now - last_status_print).total_seconds() >= 60:
+                elif last_idle_status_print is None or \
+                        (now - last_idle_status_print).total_seconds() >= args.status_interval:
                     print(status)
-                    last_status_print = now
+                    last_idle_status_print = now
 
             time.sleep(1)
     except KeyboardInterrupt:
