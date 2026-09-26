@@ -158,7 +158,7 @@ later, if that becomes worth doing.
 | Plan passes (auto-approve) | prompts for hours-ahead, then `plan_passes.py --hours N` |
 | Plan passes (interactive, new window) | same prompt, then `plan_passes.py --hours N --interactive` in its own terminal (see above) |
 | Start relay.py / Start tcp_bridge.py (new window) | `relay.py --verbose` / `tcp_bridge.py --verbose`, each in its own terminal |
-| Start run_passes.py (new window) | `run_passes.py --verbose`, in its own terminal |
+| Start run_passes.py (new window) | prompts for the status line update interval (default 5s), then `run_passes.py --verbose --status-interval N`, in its own terminal |
 
 Every captured (non-terminal) Python subprocess call runs with `-u`
 (unbuffered), inserted automatically by `run_cmd()`. Without it, a
