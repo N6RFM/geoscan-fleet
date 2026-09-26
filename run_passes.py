@@ -122,6 +122,32 @@ def elevation_deg(sat, observer, t):
     return el.degrees, az.degrees
 
 
+def preposition_for_next_pass(rot, passes, tles, sat_cfgs, ts, observer, now):
+    """Called whenever a pass ends, for any reason - point the rotor at
+    where the NEXT approved pass will actually rise, rather than leaving
+    it wherever the just-finished pass happened to end. Otherwise the
+    rotor has to slew from scratch right at the start of the next pass,
+    exactly when signal is weakest (low elevation) and every second of
+    mispointing costs the most. One-shot: doesn't track anything, just
+    moves once and stops - the real tracking loop takes over normally
+    once that satellite's own AOS actually arrives."""
+    if rot is None:
+        return
+    upcoming = [p for p in passes if p["aos_dt"] > now]
+    if not upcoming:
+        return
+    nxt = upcoming[0]
+    sat = tles.get(nxt["norad"])
+    if sat is None:
+        return
+    sat_cfg = sat_cfgs[nxt["norad"]]
+    t_aos = ts.from_datetime(nxt["aos_dt"])
+    el_deg, az_deg = elevation_deg(sat, observer, t_aos)
+    rot.point(az_deg, el_deg)
+    print(f"[{sat_cfg['name']}] pre-positioning rotor to az={az_deg:.1f} "
+          f"el={el_deg:.1f} for its AOS in {format_countdown(nxt['aos_dt'] - now)}")
+
+
 def range_km(sat, observer, t):
     return (sat - observer).at(t).distance().km
 
@@ -212,6 +238,16 @@ def main():
                      help="how often to print the verbose status line during a pass "
                           "(default: 5s) - Doppler/rotor tracking itself still updates "
                           "every second regardless, only the printed line is throttled")
+    ap.add_argument("--no-preposition", action="store_true",
+                     help="don't pre-position the rotor toward the next approved pass "
+                          "when the current one ends - leave it wherever the pass "
+                          "finished instead")
+    ap.add_argument("--record-iq", choices=["yes", "no"], default="yes",
+                     help="session-wide default for whether to record IQ data "
+                          "(default: yes) - only actually affects satellites whose "
+                          "satellites.yaml entry has record_iq_toggle: true, meaning "
+                          "their .grc has a record_iq Parameter block wired up; every "
+                          "other satellite launches exactly as before, unaffected")
     args = ap.parse_args()
 
     acquire_lock()
@@ -274,6 +310,8 @@ def main():
                               f"(code {active_proc.returncode}) - check its output above. "
                               f"Abandoning this pass; rotor/Doppler stopped for it.")
                         active_pass, active_proc = None, None
+                        if not args.no_preposition:
+                            preposition_for_next_pass(rot, passes, tles, sat_cfgs, ts, observer, now)
                         time.sleep(1)
                         continue
 
@@ -292,6 +330,8 @@ def main():
                         except subprocess.TimeoutExpired:
                             active_proc.kill()
                         active_pass, active_proc = None, None
+                        if not args.no_preposition:
+                            preposition_for_next_pass(rot, passes, tles, sat_cfgs, ts, observer, now)
                     else:
                         dop = doppler_hz(sat, observer, t, sat_cfg["freq_hz"])
                         corrected = sat_cfg["freq_hz"] + dop
@@ -335,6 +375,8 @@ def main():
                     except Exception:
                         pass
                     active_pass, active_proc = None, None
+                    if not args.no_preposition:
+                        preposition_for_next_pass(rot, passes, tles, sat_cfgs, ts, observer, now)
 
             if active_pass is None:
                 for p in passes:
@@ -345,7 +387,13 @@ def main():
                         print(f"[{sat_cfg['name']}] AOS - launching {sat_cfg['script']}")
                         if notify_enabled:
                             notify("Satellite pass starting", f"{sat_cfg['name']} - AOS")
-                        active_proc = subprocess.Popen([sys.executable, "-u", sat_cfg["script"]])
+                        cmd = [sys.executable, "-u", sat_cfg["script"]]
+                        if sat_cfg.get("record_iq_toggle", False):
+                            # only satellites whose .grc actually has the
+                            # record_iq Parameter block wired up get this flag -
+                            # everything else launches exactly as before
+                            cmd += ["--record_iq", "1" if args.record_iq == "yes" else "0"]
+                        active_proc = subprocess.Popen(cmd)
                         active_pass = p
                         time.sleep(3)  # let the flowgraph come up before polling rigctld
                         break

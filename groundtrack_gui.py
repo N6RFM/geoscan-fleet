@@ -233,6 +233,9 @@ class GroundtrackGUI(tk.Tk):
         self.preposition_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(row6, text="Pre-position rotor for next pass",
                          variable=self.preposition_var).pack(side="left", padx=(8, 0))
+        self.record_iq_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row6, text="Record IQ",
+                         variable=self.record_iq_var).pack(side="left", padx=(8, 0))
 
     def _build_output(self):
         header = ttk.Frame(self.content)
@@ -498,6 +501,7 @@ class GroundtrackGUI(tk.Tk):
                "--status-interval", str(interval)]
         if not self.preposition_var.get():
             cmd.append("--no-preposition")
+        cmd += ["--record-iq", "yes" if self.record_iq_var.get() else "no"]
         self.spawn_in_terminal(cmd)
 
     def run_update_tle(self):

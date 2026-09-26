@@ -17,6 +17,9 @@ Usage:
     python3 edit_satellite.py NAME --min-elev 20
     python3 edit_satellite.py NAME --producer-port 9107 --consumer-port 8107
     python3 edit_satellite.py NAME --enabled
+    python3 edit_satellite.py NAME --record-iq-toggle
+        # marks that NAME's .grc has a record_iq Parameter block wired up,
+        # so run_passes.py's --record-iq flag can actually control it
     python3 edit_satellite.py NAME --disabled
 
     # extra_outputs - a satellite with a second live output that a
@@ -64,6 +67,15 @@ def main():
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--enabled", action="store_true")
     group.add_argument("--disabled", action="store_true")
+    group2 = ap.add_mutually_exclusive_group()
+    group2.add_argument("--record-iq-toggle", action="store_true",
+                         help="mark that this satellite's .grc has a record_iq "
+                              "Parameter block wired to its Advanced File Sink's "
+                              "Record on Start field - lets run_passes.py's "
+                              "--record-iq flag actually control this satellite")
+    group2.add_argument("--no-record-iq-toggle", action="store_true",
+                         help="this satellite's .grc has no such toggle - "
+                              "run_passes.py's --record-iq flag won't be passed to it")
 
     ap.add_argument("--extra-output-name", default=None,
                      help="add/replace an extra_outputs entry with this name")
@@ -130,6 +142,15 @@ def main():
         if sat.get("enabled", True) is not False:
             changes.append("enabled: true -> false")
         sat["enabled"] = False
+
+    if args.record_iq_toggle:
+        if sat.get("record_iq_toggle", False) is not True:
+            changes.append("record_iq_toggle: false -> true")
+        sat["record_iq_toggle"] = True
+    elif args.no_record_iq_toggle:
+        if sat.get("record_iq_toggle", False) is not False:
+            changes.append("record_iq_toggle: true -> false")
+        sat["record_iq_toggle"] = False
 
     if args.remove_extra_output:
         existing = sat.get("extra_outputs", [])
