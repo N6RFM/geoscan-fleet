@@ -72,8 +72,15 @@ def main():
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
 
-    if any(s["norad"] == args.norad for s in cfg.get("satellites", [])):
-        raise SystemExit(f"NORAD {args.norad} is already configured - refusing to add a duplicate")
+    dupes = [s["name"] for s in cfg.get("satellites", []) if s["norad"] == args.norad]
+    if dupes:
+        print(f"NOTE: NORAD {args.norad} is already configured as {', '.join(dupes)} - "
+              f"adding another satellite with the same NORAD is fine for comparing "
+              f"different frequencies/decode approaches against the same physical "
+              f"object, but since they share one orbit, every pass will have "
+              f"identical AOS/LOS times for all of them. Only enable one of these "
+              f"at a time - a single SDR can't run two flowgraphs during the same "
+              f"pass window.")
 
     slug = slugify(args.name)
     grc_path = f"flowgraphs/{slug}.grc"
