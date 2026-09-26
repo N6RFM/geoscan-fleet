@@ -83,14 +83,18 @@ for it, `preflight.py` reports it as skipped rather than checking it.
 Its full entry stays in `satellites.yaml` untouched, so re-enabling it
 later needs no reconfiguration at all. See "Adding a satellite" below.
 
-**`update_tle.py`** - refreshes the TLE file from a base of Celestrak
-groups (default: `cubesat` + `amateur`), with individual satellites
-added on top by catalog number for anything not covered by those groups:
+**`update_tle.py`** - refreshes the TLE file, one bulk fetch from SatNOGS
+covering every configured satellite (including "temporary ID" satellites
+too new for Celestrak/Space-Track's official catalog yet), with
+Celestrak consulted per-satellite only as a fallback for whatever
+SatNOGS didn't have:
 ```
 python3 update_tle.py
-python3 update_tle.py --extra-catnr 69880
 python3 update_tle.py --check-only    # report coverage/age, don't download
 ```
+Nothing to specify per-satellite - every satellite in `satellites.yaml`
+is covered automatically by both sources, so there's no flag to remember
+to pass when a new one gets added.
 Validates the download before overwriting the real file, and reports
 exactly which configured satellites are missing afterward rather than
 failing silently later inside `plan_passes.py`.

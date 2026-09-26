@@ -163,7 +163,7 @@ groundtrack/
 ├── add_satellite.py         # adds a new satellite's config entry (you build the .grc)
 ├── edit_satellite.py        # edits an existing satellite's fields (and extra_outputs)
 ├── toggle_satellite.py      # enable/disable a satellite without deleting its config
-├── update_tle.py            # refreshes tle_file from a base of Celestrak groups + extras
+├── update_tle.py            # refreshes tle_file - SatNOGS primary, Celestrak fallback
 ├── ci_check.py              # portable checks - what CI runs on every push
 ├── regen_all.sh             # grcc every .grc, then run preflight.py
 ├── Makefile                 # make build / check / status / doctor

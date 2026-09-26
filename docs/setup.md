@@ -52,16 +52,13 @@
    ```
    python3 update_tle.py
    ```
-   Fetches a base of Celestrak's `cubesat` and `amateur` groups by
-   default - between them, covering most satellites this kind of station
-   is likely to track - merges them, and validates that every satellite
-   currently in `satellites.yaml` is actually covered. If one isn't (too
-   new, uncoordinated, or simply in a different group), add it
-   individually by NORAD ID rather than needing a whole separate TLE
-   source:
-   ```
-   python3 update_tle.py --extra-catnr 69880
-   ```
+   Fetches every configured satellite's TLE from SatNOGS in one bulk
+   download - including "temporary ID" satellites too new for
+   Celestrak/Space-Track's official catalog to have picked up yet.
+   Anything SatNOGS doesn't have falls back automatically to an
+   individual Celestrak lookup for just that satellite. Nothing to add
+   manually - every satellite in `satellites.yaml` is covered by both
+   sources on every run, with no flag to remember for a new one.
    Refresh this daily (cron), and re-run `plan_passes.py` after each
    refresh - stale TLEs drift AOS/LOS times and Doppler accuracy.
 

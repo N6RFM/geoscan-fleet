@@ -153,7 +153,7 @@ later, if that becomes worth doing.
 | Run preflight.py (full check) | exactly that, captured and shown in the output pane |
 | Run doctor.py | exactly that |
 | Run doctor.py --fix | actually removes/moves stray compiled files it finds, rather than just printing the commands |
-| Run update_tle.py | `update_tle.py` with no extra flags - it auto-detects every configured satellite not covered by the base Celestrak groups and fetches those individually on its own, every run, regardless of what's passed on the command line |
+| Run update_tle.py | `update_tle.py` with no flags - fetches every configured satellite's TLE from SatNOGS in one bulk download (including "temporary ID" satellites too new for Celestrak's official catalog), falling back to an individual Celestrak lookup per-satellite for anything SatNOGS doesn't have |
 | Show schedule | `show_queue.py` |
 | Plan passes (auto-approve) | prompts for hours-ahead, then `plan_passes.py --hours N` |
 | Plan passes (interactive, new window) | same prompt, then `plan_passes.py --hours N --interactive` in its own terminal (see above) |
